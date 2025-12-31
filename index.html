@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Validoon</title>
+
+  <!-- Performance & Security -->
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="referrer" content="no-referrer" />
+
+  <!-- Basic SEO -->
+  <meta name="description" content="Validoon – Local decision engine to triage inputs, detect risks, and decide ALLOW / WARN / BLOCK." />
+
+  <!-- Minimal inline CSS (no external files) -->
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #121833;
+      --accent: #7c8cff;
+      --text: #e8ebff;
+      --muted: #9aa2ff;
+      --success: #1ec98b;
+      --danger: #ff5c7a;
+    }
+
+    * {
+      box-sizing: border-box;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .app {
+      width: 100%;
+      max-width: 900px;
+      padding: 24px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+      color: var(--accent);
+    }
+
+    p {
+      margin: 0 0 16px;
+      color: var(--muted);
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 160px;
+      background: var(--panel);
+      border: 1px solid #2a3370;
+      color: var(--text);
+      padding: 12px;
+      resize: vertical;
+      border-radius: 8px;
+      outline: none;
+    }
+
+    button {
+      margin-top: 12px;
+      padding: 12px 20px;
+      background: var(--accent);
+      border: none;
+      color: #000;
+      font-weight: 600;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      opacity: 0.9;
+    }
+
+    .result {
+      margin-top: 20px;
+      padding: 16px;
+      border-radius: 8px;
+      background: var(--panel);
+      border-left: 6px solid var(--success);
+    }
+
+    .block {
+      border-left-color: var(--danger);
+    }
+
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app">
+    <h1>Validoon</h1>
+    <p>Paste one item per line. Local decision engine (client-side).</p>
+
+    <textarea id="input" placeholder="Paste input here..."></textarea>
+    <button id="scanBtn">Execute Scan</button>
+
+    <div id="result" class="result hidden"></div>
+  </div>
+
+  <!-- JS loaded with defer for performance -->
+  <script src="app.js" defer></script>
+</body>
+</html>
