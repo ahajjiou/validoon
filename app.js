@@ -1,240 +1,230 @@
-/* Validoon — client-side triage (ALLOW / WARN / BLOCK)
-   No network calls. No storage. No dependencies.
-*/
+(() => {
+  "use strict";
 
-(function () {
-  const $ = (id) => document.getElementById(id);
+  // ---------- Helpers ----------
+  const $ = (sel) => document.querySelector(sel);
+  const byId = (id) => document.getElementById(id);
 
-  const inputEl = $("input");
-  const scanBtn = $("scanBtn");
-  const clearBtn = $("clearBtn");
-  const pasteBtn = $("pasteBtn");
-  const modeEl = $("mode");
-  const showWhyEl = $("showWhy");
+  function must(el, name) {
+    if (!el) throw new Error(`Missing DOM element: ${name}`);
+    return el;
+  }
 
-  const linesCountEl = $("linesCount");
-  const charsCountEl = $("charsCount");
+  function safeText(s) {
+    return String(s ?? "").replace(/\u0000/g, "");
+  }
 
-  const allowCountEl = $("allowCount");
-  const warnCountEl = $("warnCount");
-  const blockCountEl = $("blockCount");
+  function nowISO() {
+    const d = new Date();
+    return d.toISOString();
+  }
 
-  const resultsEl = $("results");
-  const statusEl = $("status");
+  // ---------- DOM ----------
+  const inputEl     = must(byId("input"), "input");
+  const pasteBtn    = must(byId("pasteBtn"), "pasteBtn");
+  const clearBtn    = must(byId("clearBtn"), "clearBtn");
+  const scanBtn     = must(byId("scanBtn"), "scanBtn");
+  const modeSel     = must(byId("modeSel"), "modeSel");
+  const reasonsChk  = must(byId("reasonsChk"), "reasonsChk");
 
-  const copyJsonBtn = $("copyJsonBtn");
-  const selfTestLink = $("selfTestLink");
+  const allowCountEl = must(byId("allowCount"), "allowCount");
+  const warnCountEl  = must(byId("warnCount"), "warnCount");
+  const blockCountEl = must(byId("blockCount"), "blockCount");
 
-  // ------- Core rules (simple, explainable, extensible) -------
-  function evaluateLine(raw, mode) {
-    const s = (raw || "").trim();
-    if (!s) return null;
+  const copyJsonBtn = must(byId("copyJsonBtn"), "copyJsonBtn");
+  const selfTestBtn = must(byId("selfTestBtn"), "selfTestBtn");
+
+  // Optional containers (if you have them)
+  const perLineBox = byId("perLineBox");      // container for per-line results
+  const statusEl   = byId("statusText");      // small status label
+
+  // ---------- Engine ----------
+  const PATTERNS = {
+    block: [
+      { re: /<\s*script\b/i, reason: "Contains <script> tag" },
+      { re: /\bjavascript:\s*/i, reason: "javascript: URL scheme" },
+      { re: /\b(onerror|onload|onclick|onmouseover)\s*=/i, reason: "Inline event handler" },
+      { re: /\b(eval|Function)\s*\(/i, reason: "Dynamic code execution" },
+      { re: /\b(document\.cookie|localStorage|sessionStorage)\b/i, reason: "Sensitive browser storage access" },
+      { re: /\b(union\s+select|sleep\(|benchmark\(|or\s+1=1)\b/i, reason: "SQLi-like pattern" },
+      { re: /\b(cat\s+\/etc\/passwd|\/etc\/passwd)\b/i, reason: "Obvious sensitive file reference" }
+    ],
+    warn: [
+      { re: /\b(token|apikey|api_key|secret|bearer)\b/i, reason: "Looks like a credential keyword" },
+      { re: /\bhttps?:\/\/\S+/i, reason: "Contains URL" },
+      { re: /\b(base64|jwt)\b/i, reason: "Encoded/structured token indicator" },
+      { re: /\b(select|insert|update|delete)\b/i, reason: "DB keyword (context dependent)" },
+      { re: /[A-Za-z0-9+\/]{40,}={0,2}/, reason: "Long base64-ish string" }
+    ]
+  };
+
+  function triageLine(line, mode) {
+    const txt = safeText(line).trim();
+    if (!txt) return { decision: "ALLOW", reasons: ["Empty line"] };
 
     const reasons = [];
-    const lower = s.toLowerCase();
-    const strict = mode === "strict";
 
-    // Light heuristics (triage, not a full scanner)
-    const hasUrl = /https?:\/\/|www\./i.test(s);
-    const hasEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
-    const hasLong = s.length >= (strict ? 80 : 120);
-    const hasWeird = /[\u0000-\u001f<>]/.test(s); // control chars or angle brackets
-    const symbolCount = (s.match(/[^a-z0-9\s]/gi) || []).length;
-    const hasManySymbols = symbolCount > (strict ? 18 : 28);
+    // BLOCK checks
+    for (const p of PATTERNS.block) {
+      if (p.re.test(txt)) reasons.push(p.reason);
+    }
+    if (reasons.length) return { decision: "BLOCK", reasons };
 
-    if (hasWeird) reasons.push("Contains control characters or unsafe symbols.");
-    if (hasManySymbols) reasons.push("Unusually high symbol density.");
-    if (hasLong) reasons.push("Unusually long input.");
-
-    // Clear red flags (generic patterns)
-    const looksLikeScript = /<script\b|javascript:|onerror\s*=|onload\s*=/i.test(s);
-    const looksLikeSql =
-      /\b(select|union|insert|drop|update|delete)\b/i.test(lower) &&
-      /\b(from|into|where|values|set)\b/i.test(lower);
-    const looksLikePathTrav = /\.\.\/|\\\.\.\\/.test(s);
-
-    if (looksLikeScript) reasons.push("Looks like script injection.");
-    if (looksLikeSql) reasons.push("Looks like SQL-style injection pattern.");
-    if (looksLikePathTrav) reasons.push("Looks like path traversal pattern.");
-
-    let decision = "ALLOW";
-    if (looksLikeScript || looksLikeSql || looksLikePathTrav) decision = "BLOCK";
-    else if (reasons.length) decision = "WARN";
-
-    // Positive reasons for ALLOW (to avoid empty explanation)
-    if (decision === "ALLOW") {
-      if (hasUrl) reasons.push("Recognized URL-like input.");
-      else if (hasEmail) reasons.push("Recognized email-like input.");
-      else reasons.push("No risk signals detected.");
+    // WARN checks
+    for (const p of PATTERNS.warn) {
+      if (p.re.test(txt)) reasons.push(p.reason);
     }
 
-    return { input: s, decision, reasons };
+    // Strict mode escalates some WARNs to BLOCK if multiple reasons
+    if (mode === "strict" && reasons.length >= 2) {
+      return { decision: "BLOCK", reasons: [...reasons, "Strict mode: multiple warnings escalated"] };
+    }
+
+    if (reasons.length) return { decision: "WARN", reasons };
+
+    return { decision: "ALLOW", reasons: ["No obvious risk signals"] };
   }
 
-  function parseLines(text) {
-    return (text || "")
+  function parseLines(raw) {
+    return safeText(raw)
       .split(/\r?\n/)
-      .map((x) => x.trim())
-      .filter(Boolean);
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
   }
 
-  function setCounts(lines) {
-    linesCountEl.textContent = String(lines.length);
-    charsCountEl.textContent = String((inputEl.value || "").length);
+  function setStatus(msg) {
+    if (statusEl) statusEl.textContent = msg;
   }
 
-  function setSummary(items) {
-    const allow = items.filter((x) => x.decision === "ALLOW").length;
-    const warn = items.filter((x) => x.decision === "WARN").length;
-    const block = items.filter((x) => x.decision === "BLOCK").length;
+  function renderSummary(summary) {
+    allowCountEl.textContent = String(summary.counts.ALLOW);
+    warnCountEl.textContent  = String(summary.counts.WARN);
+    blockCountEl.textContent = String(summary.counts.BLOCK);
 
-    allowCountEl.textContent = String(allow);
-    warnCountEl.textContent = String(warn);
-    blockCountEl.textContent = String(block);
-  }
+    if (perLineBox) {
+      perLineBox.innerHTML = "";
+      for (const row of summary.items) {
+        const div = document.createElement("div");
+        div.className = "lineRow";
+        const left = document.createElement("div");
+        left.className = "lineText";
+        left.textContent = row.text;
 
-  function escapeHtml(s) {
-    return String(s)
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
-  }
+        const right = document.createElement("div");
+        right.className = `badge badge-${row.decision.toLowerCase()}`;
+        right.textContent = row.decision;
 
-  function render(items) {
-    resultsEl.innerHTML = "";
-    const showWhy = !!showWhyEl.checked;
+        div.appendChild(left);
+        div.appendChild(right);
 
-    if (!items.length) {
-      resultsEl.innerHTML =
-        `<div style="color:#a8b0ff;font-size:13px;padding:10px 2px">No results. Paste at least one line.</div>`;
-      return;
-    }
+        if (reasonsChk.checked) {
+          const ul = document.createElement("ul");
+          ul.className = "reasons";
+          for (const r of row.reasons) {
+            const li = document.createElement("li");
+            li.textContent = r;
+            ul.appendChild(li);
+          }
+          div.appendChild(ul);
+        }
 
-    for (const it of items) {
-      const badgeClass = it.decision.toLowerCase();
-      const card = document.createElement("div");
-      card.className = "card" + (showWhy ? " show-why" : "");
-
-      const left = document.createElement("div");
-      left.className = "txt";
-
-      const line = document.createElement("div");
-      line.className = "line";
-      line.innerHTML = escapeHtml(it.input);
-
-      const why = document.createElement("div");
-      why.className = "why";
-      why.innerHTML = escapeHtml(it.reasons.join(" "));
-
-      left.appendChild(line);
-      left.appendChild(why);
-
-      const badge = document.createElement("div");
-      badge.className = `badge ${badgeClass}`;
-      badge.textContent = it.decision;
-
-      card.appendChild(left);
-      card.appendChild(badge);
-      resultsEl.appendChild(card);
+        perLineBox.appendChild(div);
+      }
     }
   }
 
-  function scan() {
-    const mode = modeEl.value;
-    const lines = parseLines(inputEl.value);
-    setCounts(lines);
+  function runScan(customInput) {
+    const mode = String(modeSel.value || "normal").toLowerCase();
+    const raw = customInput ?? inputEl.value;
+    const lines = parseLines(raw);
 
+    const counts = { ALLOW: 0, WARN: 0, BLOCK: 0 };
     const items = [];
+
     for (const line of lines) {
-      const r = evaluateLine(line, mode);
-      if (r) items.push(r);
+      const out = triageLine(line, mode);
+      counts[out.decision]++;
+      items.push({ text: line, decision: out.decision, reasons: out.reasons });
     }
 
-    setSummary(items);
-    render(items);
+    const summary = {
+      meta: { generatedAt: nowISO(), mode, lines: lines.length },
+      counts,
+      items
+    };
 
-    statusEl.textContent = items.length
-      ? `Scanned ${items.length} line(s) in ${mode.toUpperCase()} mode.`
-      : "Idle.";
-
-    window.__VALIDOON_LAST__ = items; // in-memory only
+    window.__VALIDOON_LAST_JSON__ = summary; // for Copy JSON
+    renderSummary(summary);
+    setStatus(lines.length ? `Scanned ${lines.length} line(s).` : "No input.");
   }
 
-  function clearAll() {
-    inputEl.value = "";
-    setCounts([]);
-    setSummary([]);
-    resultsEl.innerHTML = "";
-    statusEl.textContent = "Cleared.";
-    window.__VALIDOON_LAST__ = [];
-  }
-
-  async function pasteFromClipboard() {
+  // ---------- Actions ----------
+  async function doPaste() {
     try {
-      const txt = await navigator.clipboard.readText();
-      if (txt) {
-        inputEl.value = txt;
-        setCounts(parseLines(txt));
-        statusEl.textContent = "Pasted from clipboard.";
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        inputEl.value = text;
+        setStatus("Pasted from clipboard.");
       } else {
-        statusEl.textContent = "Clipboard is empty.";
+        setStatus("Clipboard is empty.");
       }
     } catch {
-      statusEl.textContent = "Clipboard access blocked by browser permissions.";
+      setStatus("Clipboard paste blocked by browser. Use Ctrl+V inside the box.");
     }
   }
 
-  async function copyJson() {
-    const data = window.__VALIDOON_LAST__ || [];
+  function doClear() {
+    inputEl.value = "";
+    allowCountEl.textContent = "0";
+    warnCountEl.textContent = "0";
+    blockCountEl.textContent = "0";
+    if (perLineBox) perLineBox.innerHTML = "";
+    window.__VALIDOON_LAST_JSON__ = null;
+    setStatus("Cleared.");
+    inputEl.focus();
+  }
+
+  async function doCopyJSON() {
+    const data = window.__VALIDOON_LAST_JSON__;
+    if (!data) return setStatus("Nothing to copy yet. Run a scan first.");
+    const txt = JSON.stringify(data, null, 2);
     try {
-      await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
-      statusEl.textContent = "Copied JSON to clipboard.";
+      await navigator.clipboard.writeText(txt);
+      setStatus("JSON copied.");
     } catch {
-      statusEl.textContent = "Copy failed (browser permissions).";
+      setStatus("Copy blocked by browser.");
     }
   }
 
-  function selfTest() {
-    inputEl.value = [
-      "hello world",
-      "email@example.com",
+  function doSelfTest() {
+    const test = [
+      "hello",
       "https://example.com/path?q=1",
       "<script>alert(1)</script>",
-      "../etc/passwd",
-      "SELECT * FROM users WHERE id=1"
+      "Bearer sk_test_1234567890abcdef",
+      "SELECT * FROM users WHERE id=1 OR 1=1"
     ].join("\n");
-    setCounts(parseLines(inputEl.value));
-    scan();
+
+    inputEl.value = test;
+    runScan(test);
   }
 
-  // ------- Events -------
-  inputEl.addEventListener("input", () => setCounts(parseLines(inputEl.value)));
+  // ---------- Wire events ----------
+  pasteBtn.addEventListener("click", (e) => { e.preventDefault(); doPaste(); });
+  clearBtn.addEventListener("click", (e) => { e.preventDefault(); doClear(); });
+  scanBtn.addEventListener("click", (e) => { e.preventDefault(); runScan(); });
+  copyJsonBtn.addEventListener("click", (e) => { e.preventDefault(); doCopyJSON(); });
+  selfTestBtn.addEventListener("click", (e) => { e.preventDefault(); doSelfTest(); });
 
-  scanBtn.addEventListener("click", scan);
-  clearBtn.addEventListener("click", clearAll);
-  pasteBtn.addEventListener("click", pasteFromClipboard);
-
-  showWhyEl.addEventListener("change", () => render(window.__VALIDOON_LAST__ || []));
-  modeEl.addEventListener("change", () => {
-    if ((window.__VALIDOON_LAST__ || []).length) scan();
+  // Ctrl+Enter triggers scan
+  inputEl.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      runScan();
+    }
   });
 
-  copyJsonBtn.addEventListener("click", copyJson);
-  selfTestLink.addEventListener("click", (e) => {
-    e.preventDefault();
-    selfTest();
-  });
-
-  // Ctrl+Enter to scan
-  document.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") scan();
-  });
-
-  // Init
-  window.__VALIDOON_LAST__ = [];
-  setCounts([]);
-  setSummary([]);
+  // Boot mark
+  window.__VALIDOON_APP_OK__ = true;
+  setStatus("Ready.");
 })();
-```0
