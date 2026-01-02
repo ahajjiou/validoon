@@ -1,394 +1,199 @@
 <!-- index.html -->
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" dir="ltr">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Validoon</title>
-  <meta name="description" content="Validoon – local triage engine to label pasted inputs as ALLOW / WARN / BLOCK with actionable reasons." />
-  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+
+  <!-- Basic SEO -->
+  <meta name="description" content="Validoon — local decision engine to triage inputs, detect risk signals, and decide ALLOW / WARN / BLOCK in seconds." />
   <meta name="referrer" content="no-referrer" />
+
+  <!-- Security headers (static-friendly) -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'; upgrade-insecure-requests" />
 
   <style>
     :root{
-      --bg:#070b16;
-      --panel:#0f1631;
-      --panel2:#0c1228;
-      --stroke:#1b2a5a;
-      --text:#e9edff;
-      --muted:#9aa6d8;
-
-      --allow:#2bd4a7;
-      --warn:#ffd166;
-      --block:#ff5c7a;
-
-      --accent:#8a7dff;
-      --chip:#141f44;
-      --shadow: rgba(0,0,0,.35);
-      --radius: 16px;
+      --bg:#070a16;
+      --panel:#0e1533;
+      --panel2:#0b1128;
+      --line:#1e2a59;
+      --text:#eef2ff;
+      --muted:#a9b2ff;
+      --accent:#7c8cff;
+      --ok:#1ec98b;
+      --warn:#fbbf24;
+      --bad:#ff5c7a;
+      --chip:#0b1a44;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      --shadow: 0 18px 50px rgba(0,0,0,.45);
     }
 
-    *{ box-sizing:border-box; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    *{ box-sizing:border-box; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
     body{
-      margin:0; background: radial-gradient(1200px 600px at 30% 10%, #182057 0%, var(--bg) 55%);
-      color:var(--text);
-      min-height:100vh;
+      margin:0; background:var(--bg); color:var(--text); min-height:100vh;
+      display:flex; justify-content:center; align-items:flex-start;
     }
-
-    .wrap{ max-width:1200px; margin:0 auto; padding:24px; }
+    .wrap{ width:100%; max-width:1100px; padding:28px 18px 60px; }
     .top{
-      display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;
-      margin-bottom:16px;
+      background:linear-gradient(180deg, rgba(124,140,255,.12), rgba(124,140,255,0));
+      border:1px solid var(--line); border-radius:16px; padding:18px 18px 16px; box-shadow:var(--shadow);
     }
-    .brand{ display:flex; gap:12px; align-items:center; }
-    .logo{
-      width:38px; height:38px; border-radius:12px;
-      background: linear-gradient(135deg, #4be6d5, #7d7cff);
-      box-shadow: 0 10px 30px var(--shadow);
+    h1{ margin:0 0 6px; font-size:28px; letter-spacing:-.4px; color:var(--accent); }
+    .pitch{
+      margin:0; color:var(--muted); font-size:13.5px; line-height:1.6;
     }
-    h1{ margin:0; font-size:26px; letter-spacing:.2px; }
-    .subtitle{ margin:6px 0 0; color:var(--muted); max-width:780px; line-height:1.35; }
+    .bullets{ margin:10px 0 0; padding-left:18px; color:var(--muted); font-size:13px; }
+    .bullets li{ margin:6px 0; }
 
-    .badge{
-      display:inline-flex; align-items:center; gap:8px;
-      padding:8px 12px; border-radius:999px;
-      background: rgba(20,31,68,.8);
-      border: 1px solid var(--stroke);
-      color: var(--muted);
-      font-size:12px;
-      white-space:nowrap;
-    }
-
-    .chips{ display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
-    .chip{
-      display:inline-flex; align-items:center; gap:8px;
-      padding:8px 12px; border-radius:999px;
-      background: var(--chip);
-      border:1px solid var(--stroke);
-      color: var(--muted);
-      font-size:12px;
-    }
-    .dot{ width:8px; height:8px; border-radius:99px; background: var(--allow); }
-    .dot.warn{ background: var(--warn); }
-    .dot.block{ background: var(--block); }
-
-    .grid{
-      display:grid;
-      grid-template-columns: 1.2fr .8fr;
-      gap:16px;
-      margin-top:16px;
-    }
-    @media (max-width: 980px){
-      .grid{ grid-template-columns:1fr; }
-    }
+    .grid{ display:grid; grid-template-columns:1.35fr 1fr; gap:16px; margin-top:16px; }
+    @media (max-width:980px){ .grid{ grid-template-columns:1fr; } }
 
     .card{
-      background: linear-gradient(180deg, rgba(15,22,49,.92), rgba(10,16,38,.92));
-      border:1px solid var(--stroke);
-      border-radius: var(--radius);
-      box-shadow: 0 20px 60px var(--shadow);
-      overflow:hidden;
+      background:rgba(14,21,51,.92); border:1px solid var(--line); border-radius:16px; padding:16px;
+      box-shadow:var(--shadow);
     }
-    .cardHeader{
-      padding:16px 16px 12px;
-      border-bottom:1px solid rgba(27,42,90,.65);
-    }
-    .cardHeader h2{
-      margin:0;
-      font-size:14px;
-      letter-spacing:.35px;
-      color: var(--muted);
-      font-weight:700;
-      text-transform:uppercase;
-    }
-    .cardBody{ padding:16px; }
+    .label{ display:block; font-size:11px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; margin-bottom:8px; }
 
     textarea{
-      width:100%;
-      min-height:240px;
-      resize:vertical;
-      border-radius:14px;
-      border:1px solid var(--stroke);
-      background: rgba(10,16,38,.85);
-      color: var(--text);
-      padding:14px;
-      outline:none;
-      line-height:1.4;
+      width:100%; min-height:220px; background:var(--panel2); border:1px solid var(--line);
+      color:var(--text); padding:12px; border-radius:12px; outline:none; resize:vertical;
+      font-family:var(--mono); font-size:13px; line-height:1.45;
     }
+    textarea:focus{ border-color:rgba(124,140,255,.85); box-shadow:0 0 0 4px rgba(124,140,255,.12); }
 
-    .btnRow{
-      display:flex; gap:10px; flex-wrap:wrap;
-      margin-top:12px;
-      align-items:center;
-      justify-content:space-between;
-    }
-    .btnGroup{ display:flex; gap:10px; flex-wrap:wrap; }
-
+    .row{ display:flex; flex-wrap:wrap; gap:10px; margin-top:12px; }
     button{
-      border:none; cursor:pointer;
-      border-radius:12px;
-      padding:10px 14px;
-      font-weight:700;
-      color: #0b0f1f;
-      background: linear-gradient(135deg, #a08cff, #6fdcff);
-      box-shadow: 0 10px 24px rgba(138,125,255,.18);
-    }
-    button.secondary{
-      background: rgba(20,31,68,.85);
-      color: var(--text);
-      border:1px solid var(--stroke);
-      box-shadow:none;
-    }
-    button.danger{
-      background: rgba(255,92,122,.15);
-      color: var(--text);
-      border:1px solid rgba(255,92,122,.35);
-      box-shadow:none;
-    }
-    button:disabled{
-      opacity:.55; cursor:not-allowed;
-    }
-
-    .metaLine{
-      display:flex; gap:12px; flex-wrap:wrap;
-      align-items:center;
-      color: var(--muted);
-      font-size:12px;
-      margin-top:10px;
-    }
-    .kbd{
-      padding:2px 8px;
-      border-radius:8px;
-      border:1px solid var(--stroke);
-      background: rgba(20,31,68,.55);
-      color: var(--muted);
-      font-weight:700;
-      font-size:11px;
-    }
-
-    .verdict{
-      display:flex; gap:12px; align-items:stretch; flex-wrap:wrap;
-    }
-    .bigVerdict{
-      flex: 1 1 320px;
-      padding:14px;
-      border-radius: 14px;
-      border:1px solid var(--stroke);
-      background: rgba(10,16,38,.7);
-    }
-    .bigVerdict .label{
-      color: var(--muted);
-      font-size:12px;
-      font-weight:800;
-      letter-spacing:.35px;
-      text-transform:uppercase;
-    }
-    .bigVerdict .value{
-      margin-top:8px;
-      font-size:34px;
-      font-weight:900;
-      letter-spacing:.4px;
-    }
-    .value.clean{ color: var(--allow); }
-    .value.review{ color: var(--warn); }
-    .value.danger{ color: var(--block); }
-
-    .statGrid{
-      display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap:12px;
-      flex: 1 1 260px;
-    }
-    .stat{
-      padding:14px;
-      border-radius: 14px;
-      border:1px solid var(--stroke);
-      background: rgba(10,16,38,.7);
-    }
-    .stat .label{ color: var(--muted); font-size:12px; font-weight:800; text-transform:uppercase; }
-    .stat .value{ margin-top:6px; font-size:26px; font-weight:900; }
-
-    .signals{
-      margin-top:14px;
-      display:flex; flex-wrap:wrap; gap:8px;
-    }
-    .tag{
-      display:inline-flex; align-items:center;
-      padding:6px 10px;
-      border-radius:999px;
-      font-size:12px;
-      border:1px solid var(--stroke);
-      background: rgba(20,31,68,.65);
-      color: var(--text);
-    }
-
-    .list{
-      margin:10px 0 0; padding-left:18px; color: var(--muted);
-      line-height:1.45;
-    }
-
-    .tableWrap{
-      margin-top:14px;
-      border:1px solid var(--stroke);
-      border-radius: 14px;
-      overflow:hidden;
-      background: rgba(10,16,38,.6);
-    }
-    table{ width:100%; border-collapse:collapse; }
-    th, td{
-      padding:10px 12px;
-      border-bottom: 1px solid rgba(27,42,90,.6);
-      text-align:left;
+      border:1px solid transparent; background:transparent; color:var(--text);
+      padding:10px 14px; border-radius:12px; font-weight:800; cursor:pointer;
+      transition:transform .15s ease, background-color .15s ease, border-color .15s ease, opacity .15s ease;
       font-size:13px;
     }
-    th{ color: var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.25px; }
-    tr:last-child td{ border-bottom:none; }
-    .pill{
-      display:inline-flex; align-items:center; gap:8px;
-      padding:5px 10px; border-radius:999px; font-weight:900; font-size:12px;
-      border:1px solid transparent;
-    }
-    .pill.allow{ color: var(--allow); border-color: rgba(43,212,167,.35); background: rgba(43,212,167,.10); }
-    .pill.warn{ color: var(--warn); border-color: rgba(255,209,102,.35); background: rgba(255,209,102,.10); }
-    .pill.block{ color: var(--block); border-color: rgba(255,92,122,.35); background: rgba(255,92,122,.10); }
+    button:hover{ transform:translateY(-1px); }
+    .primary{ background:var(--accent); color:#0b1020; }
+    .secondary{ border-color:var(--line); background:rgba(255,255,255,.03); }
+    .danger{ border-color:rgba(255,92,122,.35); background:rgba(255,92,122,.08); margin-left:auto; }
 
-    .footerTip{
-      margin-top:14px;
-      color: var(--muted);
-      font-size:12px;
+    .kpis{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
+    .kpi{ background:rgba(255,255,255,.03); border:1px solid var(--line); border-radius:14px; padding:12px; }
+    .kpi .v{ font-size:26px; font-weight:950; letter-spacing:-.6px; margin-top:2px; }
+    .verdict{ font-size:44px; font-weight:1000; letter-spacing:-1.2px; margin:2px 0 6px; }
+
+    .chips{ display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+    .chip{
+      background:var(--chip); border:1px solid var(--line); border-radius:999px;
+      padding:6px 10px; font-size:11px; font-weight:900; color:#8fd3ff; white-space:nowrap;
     }
-    .smallLink{
-      color: var(--muted);
-      text-decoration:none;
-      border-bottom:1px dotted rgba(154,166,216,.45);
+
+    .list{ margin:10px 0 0; padding-left:18px; color:var(--muted); font-size:13px; }
+    .list li{ margin:6px 0; }
+
+    table{ width:100%; border-collapse:separate; border-spacing:0; overflow:hidden; border-radius:14px; }
+    thead th{
+      text-align:left; padding:12px; font-size:11px; color:var(--muted); letter-spacing:1px; text-transform:uppercase;
+      background:rgba(255,255,255,.03); border-bottom:1px solid var(--line);
+      position:sticky; top:0;
     }
+    tbody td{
+      padding:10px 12px; border-bottom:1px solid rgba(30,42,89,.9); font-size:13px; background:rgba(255,255,255,.015);
+      vertical-align:top;
+    }
+    tbody tr:hover td{ background:rgba(255,255,255,.03); }
+    .mono{ font-family:var(--mono); color:#dbe2ff; word-break:break-all; }
+    .tag{
+      display:inline-block; font-weight:950; font-size:11px; padding:4px 8px; border-radius:8px; border:1px solid transparent;
+    }
+    .t-ok{ color:var(--ok); background:rgba(30,201,139,.08); border-color:rgba(30,201,139,.25); }
+    .t-warn{ color:var(--warn); background:rgba(251,191,36,.08); border-color:rgba(251,191,36,.25); }
+    .t-bad{ color:var(--bad); background:rgba(255,92,122,.08); border-color:rgba(255,92,122,.25); }
+
+    .small{ color:var(--muted); font-size:12px; margin-top:8px; line-height:1.5; }
   </style>
 </head>
 
 <body>
   <div class="wrap">
-    <div class="top">
-      <div>
-        <div class="brand">
-          <div class="logo"></div>
-          <div>
-            <h1>Validoon</h1>
-            <div class="subtitle">
-              Turn messy inputs into a decision you can act on. Paste any mix of URLs, logs, and suspicious fragments — Validoon labels each line as
-              <b>ALLOW</b> / <b>WARN</b> / <b>BLOCK</b> with concrete reasons and suggested next steps.
-              Everything runs locally in your browser (no uploads, no backend).
-            </div>
-          </div>
-        </div>
+    <section class="top">
+      <h1>Validoon</h1>
+      <p class="pitch">
+        A privacy-first, local decision engine that triages any pasted input (URLs, logs, tokens, payloads) and returns a clear verdict in seconds:
+        <b>ALLOW / WARN / BLOCK</b>. No uploads. No accounts. Runs entirely in your browser.
+      </p>
+      <ul class="bullets">
+        <li><b>Immediate value:</b> paste → scan → actionable reasons + remediation steps.</li>
+        <li><b>Built for real work:</b> detects phishing-style URL risks, SQLi/XSS/CMDi/LFI patterns, and obfuscation signals.</li>
+        <li><b>Exportable:</b> JSON report for incident notes, tickets, or SOC handoff.</li>
+      </ul>
+    </section>
 
-        <div class="chips">
-          <span class="chip"><span class="dot"></span> Client-side only</span>
-          <span class="chip"><span class="dot"></span> No data leaves your device</span>
-          <span class="chip"><span class="dot"></span> Fast triage</span>
-        </div>
-      </div>
-
-      <div class="badge" title="Runs entirely in the browser">
-        LOCAL • CLIENT-SIDE
-      </div>
-    </div>
-
-    <div class="grid">
-      <!-- LEFT: INPUT -->
+    <section class="grid">
       <div class="card">
-        <div class="cardHeader">
-          <h2>Input (One per line)</h2>
+        <span class="label">Input stream (one item per line)</span>
+        <textarea id="input" placeholder="Paste one item per line: URLs, SQL, logs, base64, suspicious strings..."></textarea>
+
+        <div class="row">
+          <button id="btnRun" class="primary" type="button">Execute Scan</button>
+          <button id="btnTestA" class="secondary" type="button">Load Test A (Web Threats)</button>
+          <button id="btnTestB" class="secondary" type="button">Load Test B (Mixed Logs)</button>
+          <button id="btnExport" class="secondary" type="button">Export JSON</button>
+          <button id="btnClear" class="danger" type="button">Clear</button>
         </div>
-        <div class="cardBody">
-          <textarea id="inputEl" placeholder="Paste URLs, logs, Base64, SQL/XSS fragments… one item per line."></textarea>
 
-          <div class="metaLine">
-            <span>Lines: <b id="linesCount">0</b></span>
-            <span>Chars: <b id="charsCount">0</b></span>
-            <span class="kbd">Ctrl</span> + <span class="kbd">Enter</span> to scan
-          </div>
-
-          <div class="btnRow">
-            <div class="btnGroup">
-              <button id="scanBtn">Execute Scan</button>
-              <button id="clearBtn" class="secondary">Clear</button>
-              <button id="pasteBtn" class="secondary">Paste</button>
-            </div>
-            <div class="btnGroup">
-              <button id="loadA" class="secondary">Load Test A</button>
-              <button id="loadB" class="secondary">Load Test B</button>
-              <button id="exportBtn" class="danger">Export JSON</button>
-            </div>
-          </div>
-
-          <div class="footerTip">
-            Tip: Your final domain (e.g., <b>www.validoon.com</b>) must be added under <b>Custom domains</b> in Cloudflare Pages.
-          </div>
+        <div class="small">
+          Tip: use Test A/B to validate that everything works end-to-end on any device/network.
         </div>
       </div>
 
-      <!-- RIGHT: VERDICT -->
       <div class="card">
-        <div class="cardHeader">
-          <h2>System Verdict</h2>
-        </div>
-        <div class="cardBody">
-          <div class="verdict">
-            <div class="bigVerdict">
-              <div class="label">System Verdict</div>
-              <div id="verdictText" class="value clean">IDLE</div>
-            </div>
-            <div class="statGrid">
-              <div class="stat">
-                <div class="label">Peak Severity</div>
-                <div class="value" id="peakSeverity">0%</div>
-              </div>
-              <div class="stat">
-                <div class="label">Confidence</div>
-                <div class="value" id="confidence">0%</div>
-              </div>
-            </div>
+        <span class="label">System verdict</span>
+        <div id="verdict" class="verdict">---</div>
+
+        <div class="kpis">
+          <div class="kpi">
+            <span class="label">Peak severity</span>
+            <div id="riskVal" class="v">0%</div>
           </div>
-
-          <div class="signals" id="signalsBox"></div>
-
-          <div style="margin-top:12px; display:grid; grid-template-columns:1fr; gap:12px;">
-            <div>
-              <div class="label" style="color:var(--muted); font-size:12px; font-weight:800; text-transform:uppercase;">Primary reasons</div>
-              <ul class="list" id="reasonsList"></ul>
-            </div>
-            <div>
-              <div class="label" style="color:var(--muted); font-size:12px; font-weight:800; text-transform:uppercase;">Recommended actions</div>
-              <ul class="list" id="actionsList"></ul>
-            </div>
-          </div>
-
-          <div class="tableWrap">
-            <table>
-              <thead>
-                <tr>
-                  <th style="width:40%;">Segment</th>
-                  <th style="width:12%;">Type</th>
-                  <th style="width:16%;">Decision</th>
-                  <th style="width:12%;">Severity</th>
-                  <th style="width:12%;">Confidence</th>
-                  <th style="width:8%;">Entropy</th>
-                </tr>
-              </thead>
-              <tbody id="tableBody"></tbody>
-            </table>
-          </div>
-
-          <div style="margin-top:10px; color:var(--muted); font-size:12px;">
-            Results: <b id="allowCount">0</b> ALLOW • <b id="warnCount">0</b> WARN • <b id="blockCount">0</b> BLOCK
-          </div>
-
-          <div style="margin-top:10px; color:var(--muted); font-size:12px;">
-            If you see any console error, the site will not bind button events. Open DevTools → Console.
+          <div class="kpi">
+            <span class="label">Confidence</span>
+            <div id="confVal" class="v">0%</div>
           </div>
         </div>
+
+        <div style="height:1px;background:var(--line);margin:12px 0;"></div>
+
+        <span class="label">Active signals</span>
+        <div id="signals" class="chips"></div>
+
+        <div style="height:1px;background:var(--line);margin:12px 0;"></div>
+
+        <span class="label">Primary reasons</span>
+        <ul id="reasons" class="list"></ul>
+
+        <div style="height:1px;background:var(--line);margin:12px 0;"></div>
+
+        <span class="label">Remediation steps</span>
+        <ul id="actions" class="list"></ul>
       </div>
-    </div>
+    </section>
+
+    <section class="card" style="margin-top:16px;">
+      <span class="label">Per-line findings</span>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:44%;">Segment</th>
+            <th>Type</th>
+            <th>Decision</th>
+            <th>Severity</th>
+            <th>Confidence</th>
+            <th>Entropy</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </section>
   </div>
 
   <script src="app.js" defer></script>
