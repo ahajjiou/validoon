@@ -1,387 +1,150 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" dir="ltr">
 <head>
-  <meta charset="UTF-8" />
-  <title>Validoon</title>
-
-  <!-- Performance & Security -->
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="referrer" content="no-referrer" />
-
-  <!-- Basic SEO -->
-  <meta name="description" content="Validoon — a private, client-side decision engine to triage inputs and label them ALLOW / WARN / BLOCK in seconds." />
-  <meta name="robots" content="index,follow" />
-  <meta name="theme-color" content="#0b1020" />
-
-  <!-- Open Graph -->
-  <meta property="og:title" content="Validoon" />
-  <meta property="og:description" content="Paste inputs. Get ALLOW / WARN / BLOCK. Fully client-side, fast, and private." />
-  <meta property="og:type" content="website" />
+  <title>Validoon</title>
+  <meta name="description" content="Validoon is a local decision engine that triages suspicious inputs (URLs, logs, payloads) into ALLOW / WARN / BLOCK with clear reasons—fully client-side." />
 
   <style>
     :root{
-      --bg:#0b1020;
-      --panel:#121833;
-      --panel2:#0f1530;
-      --line:#2a3370;
-      --accent:#7c8cff;
-      --text:#e8ebff;
-      --muted:#a8b0ff;
-      --success:#1ec98b;
-      --warn:#ffcc66;
-      --danger:#ff5c7a;
-      --shadow: 0 12px 40px rgba(0,0,0,.35);
-      --radius: 14px;
+      --bg:#020617; --panel:#0f172a; --muted:#64748b; --text:#f8fafc;
+      --line:#1e293b; --ok:#10b981; --warn:#fbbf24; --bad:#f43f5e; --info:#0ea5e9;
+      --accent:#8b5cf6; --shadow:0 25px 50px -12px rgba(0,0,0,.55);
     }
-    *{box-sizing:border-box;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-    body{
-      margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
-      background:radial-gradient(1200px 600px at 20% 10%, rgba(124,140,255,.18), transparent 60%),
-                 radial-gradient(900px 500px at 90% 30%, rgba(30,201,139,.10), transparent 55%),
-                 var(--bg);
-      color:var(--text);
-    }
-    .app{width:100%;max-width:1040px;padding:22px}
-    .shell{
-      background:linear-gradient(180deg, rgba(18,24,51,.82), rgba(15,21,48,.78));
-      border:1px solid rgba(42,51,112,.65);
-      border-radius:var(--radius);
-      box-shadow:var(--shadow);
-      overflow:hidden;
-    }
-    .top{
-      padding:22px 22px 14px;
-      border-bottom:1px solid rgba(42,51,112,.55);
-      display:flex;gap:16px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;
-    }
-    .brand{display:flex;gap:12px;align-items:flex-start}
-    .logo{
-      width:40px;height:40px;border-radius:12px;
-      background:linear-gradient(135deg, rgba(124,140,255,.9), rgba(30,201,139,.75));
-      box-shadow:0 10px 24px rgba(124,140,255,.25);
-      flex:0 0 auto;
-    }
-    h1{margin:0;font-size:20px;letter-spacing:.2px}
-    .tag{margin:6px 0 0;color:var(--muted);font-size:13px;line-height:1.45;max-width:720px}
-    .trust{
-      display:flex;gap:10px;align-items:center;flex-wrap:wrap;
-      color:var(--muted);font-size:12px;
-    }
-    .pill{
-      display:inline-flex;gap:8px;align-items:center;
-      background:rgba(18,24,51,.75);
-      border:1px solid rgba(42,51,112,.55);
-      padding:8px 10px;border-radius:999px;
-      white-space:nowrap;
-    }
-    .dot{width:8px;height:8px;border-radius:50%;background:var(--success)}
-    .main{padding:18px 22px 22px}
-    .hero{
-      display:grid;
-      grid-template-columns:1.15fr .85fr;
-      gap:14px;
-      margin-bottom:14px;
-    }
-    @media (max-width: 920px){
-      .hero{grid-template-columns:1fr}
-    }
-    .heroCard{
-      background:rgba(11,16,32,.55);
-      border:1px solid rgba(42,51,112,.65);
-      border-radius:var(--radius);
-      padding:14px;
-    }
-    .heroTitle{
-      margin:0;
-      font-size:16px;
-      letter-spacing:.2px;
-    }
-    .heroCopy{
-      margin:8px 0 0;
-      color:var(--muted);
-      font-size:13px;
-      line-height:1.55;
-    }
-    .heroList{
-      margin:10px 0 0;
-      padding:0;
-      list-style:none;
-      display:grid;
-      gap:8px;
-    }
-    .heroItem{
-      display:flex;gap:10px;align-items:flex-start;
-      color:rgba(232,235,255,.92);
-      font-size:13px;
-    }
-    .check{
-      width:18px;height:18px;border-radius:6px;
-      background:rgba(30,201,139,.14);
-      border:1px solid rgba(30,201,139,.35);
-      display:flex;align-items:center;justify-content:center;
-      color:var(--success);
-      font-weight:900;
-      flex:0 0 auto;
-      margin-top:1px;
-    }
-
-    .grid{
-      display:grid;grid-template-columns: 1.2fr .8fr;gap:16px;
-    }
-    @media (max-width: 860px){
-      .grid{grid-template-columns:1fr}
-    }
-
-    .panel{
-      background:rgba(18,24,51,.65);
-      border:1px solid rgba(42,51,112,.55);
-      border-radius:var(--radius);
-      padding:14px;
-    }
-
-    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-    .row.space{justify-content:space-between}
-    .meta{
-      display:flex;gap:10px;align-items:center;flex-wrap:wrap;
-      color:var(--muted);font-size:12px;
-    }
-    .kbd{
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size:11px; color:rgba(232,235,255,.9);
-      background:rgba(11,16,32,.65);
-      border:1px solid rgba(42,51,112,.55);
-      padding:3px 6px;border-radius:7px;
-    }
-
+    *{ box-sizing:border-box; }
+    body{ margin:0; font-family:system-ui,-apple-system,'Segoe UI',sans-serif; background:var(--bg); color:var(--text); line-height:1.55; }
+    .container{ max-width:1320px; margin:0 auto; padding:36px 18px; }
+    .glass{ background:rgba(15,23,42,.94); border:1px solid var(--line); border-radius:22px; padding:22px; backdrop-filter:blur(12px); box-shadow:var(--shadow); }
+    .header{ display:flex; justify-content:space-between; align-items:flex-start; gap:14px; flex-wrap:wrap; margin-bottom:16px; }
+    .title{ margin:0; font-size:30px; letter-spacing:-.6px; }
+    .subtitle{ margin:6px 0 0; color:var(--muted); font-size:13px; max-width:900px; }
+    .badge{ background:#052e2a; color:#34d399; border:1px solid rgba(16,185,129,.45); padding:6px 12px; border-radius:999px; font-size:12px; font-weight:900; text-transform:uppercase; letter-spacing:.6px; white-space:nowrap; }
+    .workspace{ display:grid; grid-template-columns:1.6fr 1fr; gap:18px; }
+    @media (max-width:980px){ .workspace{ grid-template-columns:1fr; } }
     textarea{
-      width:100%;
-      min-height:210px;
-      background:rgba(11,16,32,.55);
-      border:1px solid rgba(42,51,112,.7);
-      color:var(--text);
-      padding:12px 12px;
-      resize:vertical;
-      border-radius:12px;
-      outline:none;
-      line-height:1.4;
+      width:100%; min-height:340px; background:#010409; border:2px solid var(--line);
+      border-radius:16px; color:#e2e8f0; padding:16px; font-family:ui-monospace,Consolas,Monaco,monospace;
+      font-size:13.5px; outline:none; resize:vertical;
     }
-    textarea:focus{border-color:rgba(124,140,255,.9);box-shadow:0 0 0 3px rgba(124,140,255,.15)}
-
+    textarea:focus{ border-color:var(--accent); box-shadow:0 0 0 4px rgba(139,92,246,.12); }
+    .btn-row{ display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; }
     .btn{
-      padding:11px 14px;
-      border-radius:12px;
-      border:1px solid rgba(42,51,112,.65);
-      background:rgba(18,24,51,.75);
-      color:var(--text);
-      font-weight:650;
-      cursor:pointer;
-      user-select:none;
+      padding:12px 14px; border-radius:12px; border:1px solid transparent;
+      font-weight:900; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:8px;
+      font-size:13px; background:transparent; color:#fff;
     }
-    .btn:hover{filter:brightness(1.06)}
-    .btn.primary{
-      background:linear-gradient(135deg, rgba(124,140,255,.95), rgba(124,140,255,.75));
-      border-color:rgba(124,140,255,.9);
-      color:#0b1020;
-    }
-    .btn.ghost{background:transparent}
-    .btn.danger{border-color:rgba(255,92,122,.65)}
-    .btn.small{padding:8px 10px;border-radius:10px;font-size:12px}
-
-    .select, .toggle{
-      display:flex;gap:8px;align-items:center;
-      background:rgba(11,16,32,.55);
-      border:1px solid rgba(42,51,112,.65);
-      border-radius:12px;
-      padding:10px 12px;
-      color:var(--text);
-      font-size:13px;
-    }
-    select{
-      background:transparent;border:none;color:var(--text);outline:none;
-      font-weight:650;
-    }
-    .toggle input{accent-color: var(--accent)}
-
-    .summary{
-      display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px;
-    }
-    .stat{
-      border-radius:12px;
-      border:1px solid rgba(42,51,112,.55);
-      padding:10px;
-      background:rgba(11,16,32,.55);
-    }
-    .stat .n{font-size:18px;font-weight:800}
-    .stat .l{font-size:12px;color:var(--muted);margin-top:2px}
-    .n.allow{color:var(--success)}
-    .n.warn{color:var(--warn)}
-    .n.block{color:var(--danger)}
-
-    .results{
-      margin-top:12px;
-      display:flex;flex-direction:column;gap:10px;
-      max-height:420px;overflow:auto;padding-right:4px;
-    }
-    .card{
-      background:rgba(11,16,32,.55);
-      border:1px solid rgba(42,51,112,.65);
-      border-radius:12px;
-      padding:10px 12px;
-      display:flex;gap:10px;align-items:flex-start;justify-content:space-between;
-    }
-    .badge{
-      font-size:11px;font-weight:900;letter-spacing:.6px;
-      padding:6px 10px;border-radius:999px;white-space:nowrap;
-      border:1px solid rgba(42,51,112,.65);
-      background:rgba(18,24,51,.75);
-    }
-    .badge.allow{border-color:rgba(30,201,139,.65);color:var(--success)}
-    .badge.warn{border-color:rgba(255,204,102,.6);color:var(--warn)}
-    .badge.block{border-color:rgba(255,92,122,.65);color:var(--danger)}
-    .txt{flex:1;min-width:0}
-    .line{
-      font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-      color:rgba(232,235,255,.92);
-    }
-    .why{margin-top:4px;font-size:12px;color:var(--muted);display:none}
-    .card.show-why .why{display:block}
-
-    .footer{
-      margin-top:12px;
-      display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;
-      color:var(--muted);font-size:12px;
-    }
-    .muted-link{color:var(--muted);text-decoration:none;border-bottom:1px dashed rgba(168,176,255,.45)}
-    .muted-link:hover{filter:brightness(1.1)}
-    .sr{position:absolute;left:-9999px}
+    .btn-main{ background:var(--accent); color:#fff; }
+    .btn-sec{ border-color:var(--line); background:rgba(15,23,42,.4); }
+    .btn-clear{ margin-left:auto; }
+    .btn:hover{ transform:translateY(-1px); filter:brightness(1.06); }
+    .kpi-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px; }
+    .kpi{ background:#111b2f; border:1px solid var(--line); border-radius:16px; padding:14px; border-bottom:4px solid var(--accent); }
+    .label{ display:block; font-size:11px; color:var(--muted); letter-spacing:1.2px; text-transform:uppercase; margin-bottom:4px; }
+    .value{ font-size:28px; font-weight:1000; letter-spacing:-.8px; }
+    .divider{ height:1px; background:var(--line); margin:12px 0; }
+    .chipWrap{ display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+    .chip{ display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px; border:1px solid var(--line); background:#0b1530; color:var(--info); font-weight:900; font-size:11px; white-space:nowrap; }
+    .verdict{ font-size:50px; font-weight:1000; letter-spacing:-1.6px; }
+    .findings{ margin-top:18px; width:100%; border-collapse:separate; border-spacing:0; overflow:hidden; border-radius:16px; }
+    .findings thead th{ text-align:left; padding:12px; color:var(--muted); font-size:11px; letter-spacing:1px; text-transform:uppercase; border-bottom:2px solid var(--line); background:rgba(255,255,255,.03); position:sticky; top:0; z-index:1; }
+    .findings tbody td{ padding:10px 12px; border-bottom:1px solid rgba(30,41,59,.9); vertical-align:top; font-size:13px; background:rgba(255,255,255,.015); }
+    .mono{ font-family:ui-monospace,Consolas,Monaco,monospace; color:#cbd5e1; word-break:break-all; }
+    .tag{ display:inline-block; font-weight:1000; font-size:11px; padding:4px 9px; border-radius:8px; border:1px solid transparent; }
+    .tag-safe{ color:var(--ok); background:rgba(16,185,129,.08); border-color:rgba(16,185,129,.22); }
+    .tag-warn{ color:var(--warn); background:rgba(245,158,11,.08); border-color:rgba(245,158,11,.22); }
+    .tag-danger{ color:var(--bad); background:rgba(244,63,94,.08); border-color:rgba(244,63,94,.22); }
+    ul{ margin:8px 0 0; padding-left:18px; color:var(--muted); font-size:13px; }
+    li{ margin:6px 0; }
+    .pill{ display:inline-flex; padding:3px 10px; border:1px solid var(--line); border-radius:999px; color:var(--muted); font-size:12px; }
+    .hero{ margin-top:8px; display:grid; gap:10px; }
+    .hero strong{ color:#fff; }
   </style>
 </head>
 
 <body>
-  <div class="app">
-    <div class="shell">
-      <div class="top">
-        <div class="brand">
-          <div class="logo" aria-hidden="true"></div>
+  <div class="container">
+    <header class="header" aria-label="Validoon Header">
+      <div>
+        <h1 class="title">Validoon</h1>
+
+        <!-- Smart, clear, persuasive intro -->
+        <div class="hero subtitle">
           <div>
-            <h1>Validoon</h1>
-            <div class="tag">
-              <b>Instant clarity for risky inputs.</b> Validoon helps you quickly triage anything you copy/paste (URLs, text snippets, logs, tokens) and label it as
-              <b>ALLOW</b>, <b>WARN</b>, or <b>BLOCK</b> — with short reasons you can act on.
-              <br/><br/>
-              <b>Why it works:</b> it runs <b>fully in your browser</b> (no uploads, no server calls), so you get fast results without exposing sensitive data.
-            </div>
+            <strong>Turn messy inputs into a decision you can act on.</strong>
+            Paste any mix of URLs, logs, and suspicious fragments—Validoon classifies each line as
+            <span class="pill">ALLOW</span> / <span class="pill">WARN</span> / <span class="pill">BLOCK</span>,
+            with concrete reasons and suggested next steps.
           </div>
-        </div>
-
-        <div class="trust">
-          <div class="pill"><span class="dot"></span><span>Client-side only</span></div>
-          <div class="pill"><span class="dot"></span><span>No data leaves your device</span></div>
-          <div class="pill"><span class="dot"></span><span>Fast triage</span></div>
-        </div>
-      </div>
-
-      <div class="main">
-        <div class="hero">
-          <div class="heroCard">
-            <h2 class="heroTitle">What you can do in 10 seconds</h2>
-            <p class="heroCopy">
-              Paste inputs, scan, and immediately know what deserves attention before you click, run, or forward anything.
-            </p>
-            <ul class="heroList">
-              <li class="heroItem"><span class="check">✓</span><span>Pre-filter suspicious URLs before opening them.</span></li>
-              <li class="heroItem"><span class="check">✓</span><span>Spot obvious injection-like payloads in copied text.</span></li>
-              <li class="heroItem"><span class="check">✓</span><span>Triage logs/snippets and decide what needs review.</span></li>
-            </ul>
-          </div>
-
-          <div class="heroCard">
-            <h2 class="heroTitle">Simple decisions, readable reasons</h2>
-            <p class="heroCopy">
-              This is a lightweight triage engine — not a full security scanner. It’s designed to save time and reduce mistakes in daily workflows.
-            </p>
-            <ul class="heroList">
-              <li class="heroItem"><span class="check">✓</span><span>Two modes: <b>Normal</b> and <b>Strict</b>.</span></li>
-              <li class="heroItem"><span class="check">✓</span><span>Optional “Show reasons” for each line.</span></li>
-              <li class="heroItem"><span class="check">✓</span><span>Copy a JSON summary for reporting.</span></li>
-            </ul>
-          </div>
-        </div>
-
-        <div class="grid">
-          <!-- INPUT -->
-          <div class="panel">
-            <div class="row space">
-              <div class="meta" id="meta">
-                <span>Lines: <b id="linesCount">0</b></span>
-                <span>Chars: <b id="charsCount">0</b></span>
-                <span class="kbd">Ctrl</span> + <span class="kbd">Enter</span> to scan
-              </div>
-
-              <div class="row">
-                <button class="btn small ghost" id="pasteBtn" type="button">Paste</button>
-                <button class="btn small danger" id="clearBtn" type="button">Clear</button>
-              </div>
-            </div>
-
-            <label class="sr" for="input">Input</label>
-            <textarea id="input" placeholder="Paste one item per line..."></textarea>
-
-            <div class="row" style="margin-top:12px">
-              <div class="select" title="Scan profile">
-                <span style="color:var(--muted)">Mode</span>
-                <select id="mode">
-                  <option value="normal" selected>Normal</option>
-                  <option value="strict">Strict</option>
-                </select>
-              </div>
-
-              <label class="toggle" title="Show reasons for each decision">
-                <input id="showWhy" type="checkbox" />
-                <span>Show reasons</span>
-              </label>
-
-              <button class="btn primary" id="scanBtn" type="button">Execute Scan</button>
-            </div>
-          </div>
-
-          <!-- OUTPUT -->
-          <div class="panel">
-            <div class="row space">
-              <div style="font-weight:800">Results</div>
-              <button class="btn small ghost" id="copyJsonBtn" type="button">Copy JSON</button>
-            </div>
-
-            <div class="summary" aria-live="polite">
-              <div class="stat">
-                <div class="n allow" id="allowCount">0</div>
-                <div class="l">ALLOW</div>
-              </div>
-              <div class="stat">
-                <div class="n warn" id="warnCount">0</div>
-                <div class="l">WARN</div>
-              </div>
-              <div class="stat">
-                <div class="n block" id="blockCount">0</div>
-                <div class="l">BLOCK</div>
-              </div>
-            </div>
-
-            <div class="results" id="results"></div>
-
-            <div class="footer">
-              <span id="status">Idle.</span>
-              <span><a class="muted-link" href="#" id="selfTestLink">Run self-test</a></span>
-            </div>
+          <div>
+            Everything runs <strong>locally in your browser</strong> (client-side). No accounts, no uploads, no backend.
+            Fast triage for incident response, SOC notes, and quick “should I trust this?” checks.
           </div>
         </div>
       </div>
-    </div>
 
-    <div style="margin-top:10px;color:var(--muted);font-size:12px">
-      Tip: Your final domain (e.g., <b>www.validoon.com</b>) must be added under <b>Custom domains</b> in Cloudflare Pages.
-    </div>
+      <div class="badge">LOCAL · CLIENT-SIDE</div>
+    </header>
+
+    <main class="workspace" aria-label="Validoon Workspace">
+      <section class="glass" aria-label="Input Panel">
+        <span class="label">Input (one per line)</span>
+        <textarea id="input" placeholder="Paste: URLs, logs, Base64, SQL/XSS fragments, path traversal, cmd injection..."></textarea>
+
+        <div class="btn-row">
+          <button class="btn btn-main" id="btnScan" type="button">Execute Scan</button>
+          <button class="btn btn-sec" id="btnTestA" type="button">Load Test A</button>
+          <button class="btn btn-sec" id="btnTestB" type="button">Load Test B</button>
+          <button class="btn btn-sec" id="btnExport" type="button">Export JSON</button>
+          <button class="btn btn-sec btn-clear" id="btnClear" type="button">Clear</button>
+        </div>
+      </section>
+
+      <section class="glass" aria-label="Summary Panel">
+        <span class="label">System Verdict</span>
+        <div id="verdict" class="verdict">---</div>
+
+        <div class="kpi-grid">
+          <div class="kpi">
+            <span class="label">Peak Severity</span>
+            <span id="riskVal" class="value">0%</span>
+          </div>
+          <div class="kpi">
+            <span class="label">Confidence</span>
+            <span id="confVal" class="value">0%</span>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+        <span class="label">Active Signals</span>
+        <div id="signals" class="chipWrap" aria-live="polite"></div>
+
+        <div class="divider"></div>
+        <span class="label">Primary Reasons</span>
+        <ul id="reasons" aria-live="polite"></ul>
+
+        <div class="divider"></div>
+        <span class="label">Recommended Actions</span>
+        <ul id="actions" aria-live="polite"></ul>
+      </section>
+    </main>
+
+    <section class="glass" style="margin-top:18px;" aria-label="Per-Line Findings">
+      <table class="findings">
+        <thead>
+          <tr>
+            <th style="width:40%;">Segment</th>
+            <th>Type</th>
+            <th>Decision</th>
+            <th>Severity</th>
+            <th>Confidence</th>
+            <th>Entropy</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </section>
   </div>
 
   <script src="app.js" defer></script>
