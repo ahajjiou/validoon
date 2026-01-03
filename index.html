@@ -12,7 +12,7 @@
 
   <!-- Security headers (static-friendly) -->
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'; upgrade-insecure-requests" />
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; object-src 'none'; form-action 'none'; upgrade-insecure-requests" />
 
   <style>
     :root{
@@ -111,7 +111,7 @@
 
     .small{ color:var(--muted); font-size:12px; margin-top:8px; line-height:1.5; }
 
-    /* Step 5 — Future readiness (non-intrusive) */
+    /* Step 5 note */
     .future-note{
       margin-top:12px;
       font-size:11.5px;
@@ -147,6 +147,10 @@
           <button id="btnTestA" class="secondary" type="button">Load Test A (Web Threats)</button>
           <button id="btnTestB" class="secondary" type="button">Load Test B (Mixed Logs)</button>
           <button id="btnExport" class="secondary" type="button">Export JSON</button>
+
+          <!-- Step 4 button (THIS WAS MISSING) -->
+          <button id="btnAnother" class="secondary" type="button">Test another input</button>
+
           <button id="btnClear" class="danger" type="button">Clear</button>
         </div>
 
@@ -186,9 +190,7 @@
         <ul id="actions" class="list"></ul>
 
         <!-- Step 5: Future readiness -->
-        <div class="future-note">
-          Advanced analysis coming soon.
-        </div>
+        <div class="future-note">Advanced analysis coming soon.</div>
       </div>
     </section>
 
