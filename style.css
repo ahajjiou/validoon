@@ -1,0 +1,335 @@
+/* =========================================================
+   Validoon — CSS v1 (Visual Upgrade Pack)
+   Paste at the END of your existing CSS file.
+   ========================================================= */
+
+:root{
+  --bg0:#070A12;
+  --bg1:#0B1020;
+
+  --card: rgba(14, 21, 45, .78);
+  --card2: rgba(18, 28, 60, .70);
+
+  --stroke: rgba(180, 205, 255, .12);
+  --stroke2: rgba(180, 205, 255, .18);
+
+  --text: rgba(245, 248, 255, .92);
+  --muted: rgba(245, 248, 255, .68);
+
+  --danger:#FF4D5E;
+  --warn:#F7C948;
+  --allow:#2BE6A6;
+
+  --radius: 18px;
+  --radiusSm: 12px;
+
+  --shadow: 0 0 0 1px var(--stroke), 0 18px 55px rgba(0,0,0,.55);
+  --shadowSoft: 0 0 0 1px var(--stroke), 0 12px 36px rgba(0,0,0,.45);
+
+  --focus: rgba(92, 153, 255, .35);
+  --glowBlue: 0 0 40px rgba(92,153,255,.15);
+  --glowRed: 0 0 50px rgba(255,77,94,.18);
+  --glowGreen: 0 0 45px rgba(43,230,166,.16);
+  --glowYellow: 0 0 45px rgba(247,201,72,.14);
+}
+
+*{ box-sizing:border-box; }
+
+html, body{
+  background: radial-gradient(1200px 800px at 20% 0%, rgba(92,153,255,.10), transparent 55%),
+              radial-gradient(1000px 700px at 85% 20%, rgba(255,77,94,.08), transparent 55%),
+              linear-gradient(180deg, var(--bg0), var(--bg1));
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  text-rendering: optimizeLegibility;
+}
+
+a{ color: rgba(140,185,255,.92); }
+a:hover{ color: rgba(180,215,255,.95); }
+
+::selection{
+  background: rgba(92,153,255,.25);
+}
+
+/* ===== Scrollbar ===== */
+*::-webkit-scrollbar{ width: 10px; height: 10px; }
+*::-webkit-scrollbar-track{ background: rgba(255,255,255,.03); border-radius: 999px; }
+*::-webkit-scrollbar-thumb{
+  background: rgba(180,205,255,.14);
+  border: 1px solid rgba(180,205,255,.14);
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover{ background: rgba(180,205,255,.22); }
+
+/* =========================================================
+   Generic containers / cards
+   Works even if class names differ, via safe selectors.
+   ========================================================= */
+
+/* Card-like blocks */
+.card, .panel, .box, .surface,
+[class*="card"], [class*="panel"], [class*="surface"], [class*="container"]{
+  border-radius: var(--radius);
+}
+
+/* Apply glass + stroke to common sections */
+section, aside, .card, .panel, .box, .surface,
+[class*="card"], [class*="panel"], [class*="surface"]{
+  background: var(--card);
+  border: 1px solid var(--stroke);
+  box-shadow: var(--shadowSoft);
+  backdrop-filter: blur(10px);
+}
+
+/* Tight inner blocks */
+.inner, .content, .body, .block,
+[class*="inner"], [class*="content"], [class*="body"], [class*="block"]{
+  border-radius: var(--radiusSm);
+}
+
+/* =========================================================
+   Inputs / Textareas
+   ========================================================= */
+input, textarea, select{
+  background: rgba(8, 12, 26, .65);
+  border: 1px solid rgba(180,205,255,.14);
+  color: var(--text);
+  border-radius: 14px;
+  outline: none;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.0);
+  transition: border-color .16s ease, box-shadow .16s ease, transform .12s ease;
+}
+
+textarea{
+  line-height: 1.45;
+  letter-spacing: .2px;
+}
+
+input::placeholder, textarea::placeholder{ color: rgba(245,248,255,.40); }
+
+input:focus, textarea:focus, select:focus{
+  border-color: rgba(92,153,255,.38);
+  box-shadow: 0 0 0 4px var(--focus), var(--glowBlue);
+}
+
+/* =========================================================
+   Buttons
+   ========================================================= */
+button, .btn, [role="button"], a.button, input[type="button"], input[type="submit"]{
+  border-radius: 14px;
+  border: 1px solid rgba(180,205,255,.16);
+  background: linear-gradient(180deg, rgba(92,153,255,.20), rgba(92,153,255,.10));
+  color: var(--text);
+  padding: 10px 14px;
+  cursor: pointer;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0), 0 10px 26px rgba(0,0,0,.25);
+  transition: transform .12s ease, filter .12s ease, box-shadow .18s ease, background .18s ease;
+  user-select: none;
+}
+
+button:hover, .btn:hover, [role="button"]:hover, a.button:hover, input[type="button"]:hover, input[type="submit"]:hover{
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+  box-shadow: 0 0 0 1px rgba(180,205,255,.10), 0 16px 38px rgba(0,0,0,.35), var(--glowBlue);
+}
+
+button:active, .btn:active, [role="button"]:active, a.button:active, input[type="button"]:active, input[type="submit"]:active{
+  transform: translateY(0px) scale(.99);
+  filter: brightness(1.0);
+}
+
+button:focus-visible, .btn:focus-visible, [role="button"]:focus-visible, a.button:focus-visible{
+  outline: none;
+  box-shadow: 0 0 0 4px var(--focus), 0 16px 38px rgba(0,0,0,.35), var(--glowBlue);
+}
+
+/* Secondary/neutral buttons (best-effort) */
+button.secondary, .btn.secondary, .btn--secondary,
+button[aria-pressed="false"]{
+  background: rgba(255,255,255,.04);
+}
+
+/* Clear button (best-effort: ids or classes containing "clear") */
+button#clear, button.clear, .btn-clear, [id*="clear"], [class*="clear"]{
+  background: linear-gradient(180deg, rgba(255,77,94,.20), rgba(255,77,94,.08));
+  border-color: rgba(255,77,94,.22);
+}
+button#clear:hover, button.clear:hover, .btn-clear:hover, [id*="clear"]:hover, [class*="clear"]:hover{
+  box-shadow: 0 16px 38px rgba(0,0,0,.35), var(--glowRed);
+}
+
+/* Export button (best-effort) */
+button.export, .btn-export, [id*="export"], [class*="export"]{
+  background: linear-gradient(180deg, rgba(43,230,166,.18), rgba(43,230,166,.08));
+  border-color: rgba(43,230,166,.22);
+}
+button.export:hover, .btn-export:hover, [id*="export"]:hover, [class*="export"]:hover{
+  box-shadow: 0 16px 38px rgba(0,0,0,.35), var(--glowGreen);
+}
+
+/* =========================================================
+   Verdict headline (SECURE / SUSPICIOUS / DANGER)
+   best-effort selectors: elements containing these words
+   ========================================================= */
+h1, h2, h3, .verdict, [class*="verdict"]{
+  letter-spacing: .8px;
+}
+
+.verdict-text,
+[class*="verdictText"],
+h1:where(:not(.no-style)),
+h2:where(:not(.no-style)){
+  text-transform: uppercase;
+}
+
+/* When verdict is DANGER */
+:where(.danger, [class*="danger"], [data-verdict="danger"]) .verdict-text,
+:where(.danger, [class*="danger"], [data-verdict="danger"]) h1,
+:where(.danger, [class*="danger"], [data-verdict="danger"]) h2{
+  color: var(--danger);
+  text-shadow: 0 0 40px rgba(255,77,94,.25);
+}
+
+/* When verdict is SECURE */
+:where(.secure, [class*="secure"], [data-verdict="secure"]) .verdict-text,
+:where(.secure, [class*="secure"], [data-verdict="secure"]) h1,
+:where(.secure, [class*="secure"], [data-verdict="secure"]) h2{
+  color: var(--allow);
+  text-shadow: 0 0 40px rgba(43,230,166,.20);
+}
+
+/* When verdict is SUSPICIOUS */
+:where(.suspicious, [class*="suspicious"], [data-verdict="suspicious"]) .verdict-text,
+:where(.suspicious, [class*="suspicious"], [data-verdict="suspicious"]) h1,
+:where(.suspicious, [class*="suspicious"], [data-verdict="suspicious"]) h2{
+  color: var(--warn);
+  text-shadow: 0 0 40px rgba(247,201,72,.18);
+}
+
+/* =========================================================
+   Pills / tags (Active Signals)
+   ========================================================= */
+.pill, .tag, .badge,
+[class*="pill"], [class*="tag"], [class*="badge"]{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(180,205,255,.14);
+  background: rgba(255,255,255,.04);
+  color: rgba(245,248,255,.85);
+  font-size: 12px;
+  letter-spacing: .3px;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0);
+}
+
+.pill:hover, .tag:hover, .badge:hover,
+[class*="pill"]:hover, [class*="tag"]:hover, [class*="badge"]:hover{
+  border-color: rgba(180,205,255,.22);
+  background: rgba(255,255,255,.06);
+}
+
+/* =========================================================
+   Tables / lists (Per-line findings)
+   ========================================================= */
+table{
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  border-radius: var(--radius);
+  border: 1px solid var(--stroke);
+  background: rgba(255,255,255,.02);
+}
+
+th, td{
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(180,205,255,.08);
+  color: rgba(245,248,255,.86);
+}
+
+th{
+  font-size: 12px;
+  color: rgba(245,248,255,.70);
+  background: rgba(255,255,255,.03);
+  letter-spacing: .35px;
+  text-transform: uppercase;
+}
+
+tr:hover td{
+  background: rgba(92,153,255,.06);
+}
+
+/* Decision labels in table (ALLOW/WARN/BLOCK) */
+.decision-allow, .allow, [data-decision="allow"]{
+  color: var(--allow) !important;
+}
+.decision-warn, .warn, [data-decision="warn"]{
+  color: var(--warn) !important;
+}
+.decision-block, .block, [data-decision="block"]{
+  color: var(--danger) !important;
+}
+
+/* =========================================================
+   Make "Advanced analysis coming soon" very visible
+   - targets common structures: text, small banners, notices
+   ========================================================= */
+.coming-soon, .advanced-soon, .notice, .banner,
+[class*="coming"], [class*="soon"], [class*="notice"], [class*="banner"]{
+  border-radius: 999px;
+}
+
+/* Specific: any element that contains exact text cannot be selected by CSS.
+   So we style likely container classes/areas. */
+.advanced-banner, .advancedNotice, .advanced-note,
+[id*="advanced"], [class*="advanced"]{
+  background: linear-gradient(90deg, rgba(92,153,255,.18), rgba(43,230,166,.12));
+  border: 1px solid rgba(92,153,255,.26);
+  color: rgba(245,248,255,.92);
+  padding: 10px 12px;
+  box-shadow: 0 14px 38px rgba(0,0,0,.30), var(--glowBlue);
+}
+
+/* If the banner sits inside verdict card, keep spacing clean */
+[id*="advanced"], [class*="advanced"]{
+  margin: 10px 0 6px 0;
+}
+
+/* =========================================================
+   Typography cleanup
+   ========================================================= */
+.small, small, .muted, [class*="muted"]{
+  color: var(--muted);
+}
+
+code, pre{
+  background: rgba(0,0,0,.28);
+  border: 1px solid rgba(180,205,255,.10);
+  border-radius: 14px;
+  color: rgba(245,248,255,.90);
+}
+
+pre{
+  padding: 12px;
+  overflow: auto;
+}
+
+/* =========================================================
+   Subtle separators
+   ========================================================= */
+hr{
+  border: none;
+  height: 1px;
+  background: rgba(180,205,255,.10);
+  margin: 14px 0;
+}
+
+/* =========================================================
+   Mobile friendliness
+   ========================================================= */
+@media (max-width: 900px){
+  button, .btn, [role="button"]{ width: 100%; justify-content: center; }
+  th, td{ padding: 9px 10px; }
+}
