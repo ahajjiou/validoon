@@ -4,504 +4,304 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Validoon</title>
-  <meta name="color-scheme" content="dark" />
+
+  <!-- Strict CSP: local-only, no external scripts -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self';
+                 script-src 'self';
+                 style-src 'self' 'unsafe-inline';
+                 img-src 'self' data:;
+                 connect-src 'none';
+                 font-src 'self';
+                 base-uri 'none';
+                 form-action 'none';
+                 frame-ancestors 'none';" />
 
   <style>
     :root{
-      --bg:#0b1220;
-      --panel:#0f1a2e;
-      --panel2:#0c1628;
-      --muted:#93a4c7;
-      --text:#e8eefc;
-      --good:#2dd4bf;
-      --warn:#fbbf24;
-      --bad:#fb7185;
-      --chip:#111c33;
-      --border:rgba(255,255,255,.08);
-      --shadow: 0 10px 30px rgba(0,0,0,.35);
-      --r:18px;
-      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      --bg:#0b1220; --panel:#0f1b2e; --panel2:#0c1728;
+      --border:#1f2a3a; --text:#e6edf6; --muted:#9fb1c6;
+      --good:#1f9d55; --warn:#c78a19; --bad:#b42318;
+      --btn:#1b3a67; --btn2:#203a5a;
+      --shadow: 0 12px 30px rgba(0,0,0,.35);
+      --r:16px;
+      font-synthesis-weight:none;
     }
     *{box-sizing:border-box}
     body{
-      margin:0;
-      background: radial-gradient(1200px 700px at 20% 10%, rgba(45,212,191,.12), transparent 55%),
-                  radial-gradient(1200px 700px at 80% 30%, rgba(251,113,133,.10), transparent 55%),
-                  var(--bg);
-      color:var(--text);
-      font-family:var(--sans);
-      line-height:1.35;
-    }
-    a{color:inherit}
-    .wrap{
-      max-width:1180px;
-      margin:0 auto;
-      padding:18px 18px 40px;
+      margin:0; background:radial-gradient(1100px 700px at 70% 40%, #0f2a4d 0%, var(--bg) 55%);
+      color:var(--text); font: 14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      padding:22px;
     }
     .topbar{
-      display:flex;
-      gap:12px;
-      align-items:center;
-      justify-content:space-between;
-      margin:8px 0 14px;
+      display:flex; align-items:center; justify-content:space-between; gap:12px;
+      margin-bottom:14px;
     }
     .brand{
-      display:flex; gap:10px; align-items:center;
+      display:flex; align-items:center; gap:10px;
     }
     .logo{
-      width:38px;height:38px;border-radius:12px;
-      display:grid;place-items:center;
-      background:linear-gradient(135deg, rgba(45,212,191,.22), rgba(59,130,246,.16));
+      width:34px;height:34px;border-radius:10px;
+      background:linear-gradient(135deg,#1cc8ff,#6b7cff);
+      box-shadow:var(--shadow);
+    }
+    .title{
+      font-weight:700; letter-spacing:.2px;
+    }
+    .subtitle{
+      color:var(--muted); font-size:12px; margin-top:2px;
+    }
+    .grid{
+      display:grid;
+      grid-template-columns: 1.25fr .9fr;
+      gap:14px;
+    }
+    .card{
+      background:linear-gradient(180deg,var(--panel),var(--panel2));
       border:1px solid var(--border);
-      box-shadow: var(--shadow);
-      font-weight:800;
+      border-radius:var(--r);
+      box-shadow:var(--shadow);
+      overflow:hidden;
     }
-    .brand h1{
-      font-size:16px; margin:0;
-      letter-spacing:.2px;
+    .card h3{
+      margin:0; padding:14px 14px 10px;
+      font-size:13px; letter-spacing:.2px;
+      border-bottom:1px solid rgba(255,255,255,.06);
+      color:#dbe7f7;
     }
-    .brand .sub{
-      display:block;
+    .card .body{ padding:14px; }
+    textarea{
+      width:100%; min-height:240px; resize:vertical;
+      background:#081222; color:var(--text);
+      border:1px solid rgba(255,255,255,.10);
+      border-radius:12px;
+      padding:12px;
+      outline:none;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
       font-size:12px;
-      color:var(--muted);
-      margin-top:2px;
     }
-
-    .actions{
-      display:flex; gap:10px; align-items:center;
+    .row{
+      display:flex; gap:10px; flex-wrap:wrap;
+      margin-top:12px;
     }
-    .btn{
-      border:1px solid var(--border);
-      background:rgba(255,255,255,.06);
+    button{
+      border:1px solid rgba(255,255,255,.10);
+      background:linear-gradient(180deg,var(--btn),var(--btn2));
       color:var(--text);
       padding:10px 12px;
       border-radius:12px;
       cursor:pointer;
-      font-weight:650;
-      box-shadow: 0 8px 22px rgba(0,0,0,.25);
-      transition: transform .05s ease, background .12s ease;
-      user-select:none;
+      font-weight:600;
     }
-    .btn:hover{background:rgba(255,255,255,.09)}
-    .btn:active{transform: translateY(1px)}
-    .btn.primary{
-      background:linear-gradient(180deg, rgba(59,130,246,.45), rgba(59,130,246,.20));
-      border-color:rgba(59,130,246,.35);
-    }
-    .btn.ghost{
-      background:transparent;
-    }
-    .pill{
-      border:1px solid var(--border);
-      background:rgba(255,255,255,.04);
-      padding:8px 10px;
-      border-radius:999px;
-      color:var(--muted);
-      font-size:12px;
-      display:flex; gap:8px; align-items:center;
-    }
-    .dot{
-      width:8px;height:8px;border-radius:999px;background:var(--good);
-      box-shadow: 0 0 0 4px rgba(45,212,191,.12);
-    }
-
-    .grid{
-      display:grid;
-      grid-template-columns: 1.25fr .95fr;
-      gap:14px;
-      margin-top:14px;
-    }
-    @media (max-width: 980px){
-      .grid{grid-template-columns:1fr}
-    }
-
-    .card{
-      background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
-      border:1px solid var(--border);
-      border-radius:var(--r);
-      box-shadow: var(--shadow);
-      overflow:hidden;
-    }
-    .card .head{
-      padding:14px 14px 10px;
-      display:flex;
-      align-items:flex-start;
-      justify-content:space-between;
-      gap:12px;
-      border-bottom:1px solid var(--border);
-      background:rgba(0,0,0,.10);
-    }
-    .card .head h2{
-      margin:0;
-      font-size:13px;
-      letter-spacing:.2px;
-    }
-    .card .head p{
-      margin:6px 0 0;
-      color:var(--muted);
-      font-size:12px;
-    }
-    .card .body{
-      padding:14px;
-    }
-    textarea{
-      width:100%;
-      min-height:240px;
-      resize:vertical;
-      border-radius:14px;
-      border:1px solid var(--border);
-      background:rgba(0,0,0,.20);
-      color:var(--text);
-      font-family:var(--mono);
-      font-size:12px;
-      padding:12px;
-      outline:none;
-    }
-
-    .row{
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
-      margin-top:10px;
-      align-items:center;
-      justify-content:space-between;
-    }
-    .row .left{
-      display:flex; gap:10px; flex-wrap:wrap; align-items:center;
-    }
-    .hint{
-      color:var(--muted);
-      font-size:12px;
-    }
+    button.secondary{ background:transparent; }
+    button.danger{ background:linear-gradient(180deg,#7a1b1b,#5a1414); }
+    button:disabled{ opacity:.55; cursor:not-allowed; }
 
     .verdict{
       padding:14px;
-      display:grid;
-      grid-template-columns: 1fr;
-      gap:12px;
+      display:flex; flex-direction:column; gap:10px;
     }
     .verdictBox{
-      border:1px solid var(--border);
-      border-radius:16px;
-      padding:14px;
-      background:rgba(0,0,0,.18);
-    }
-    .verdictTop{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-    }
-    .badge{
-      font-weight:850;
-      letter-spacing:.8px;
-      font-size:14px;
-      padding:10px 12px;
       border-radius:14px;
-      border:1px solid var(--border);
-      width:100%;
-      text-align:center;
+      padding:16px;
+      border:1px solid rgba(255,255,255,.10);
+      background:rgba(255,255,255,.04);
+      display:flex; align-items:center; justify-content:space-between; gap:12px;
+      min-height:74px;
     }
-    .badge.secure{background:rgba(45,212,191,.12); border-color:rgba(45,212,191,.35); color:#bff7ee;}
-    .badge.suspicious{background:rgba(251,191,36,.14); border-color:rgba(251,191,36,.40); color:#fff3c4;}
-    .badge.danger{background:rgba(251,113,133,.14); border-color:rgba(251,113,133,.40); color:#ffd2da;}
-
-    .kpis{
-      display:grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap:10px;
-      margin-top:10px;
+    .verdictText{
+      font-size:32px; font-weight:900; letter-spacing:1px;
+    }
+    .pill{
+      display:inline-flex; align-items:center; gap:8px;
+      padding:8px 10px; border-radius:999px;
+      border:1px solid rgba(255,255,255,.10);
+      background:rgba(0,0,0,.18);
+      color:var(--muted); font-weight:600; font-size:12px;
     }
     .kpi{
-      border:1px solid var(--border);
+      display:grid; grid-template-columns: repeat(4, 1fr); gap:10px;
+    }
+    .k{
+      border:1px solid rgba(255,255,255,.08);
+      background:rgba(0,0,0,.16);
       border-radius:14px;
-      padding:10px;
+      padding:12px;
+      text-align:center;
+    }
+    .k .n{ font-size:20px; font-weight:900; }
+    .k .l{ color:var(--muted); font-size:12px; margin-top:2px; }
+
+    .signals{
+      display:flex; flex-wrap:wrap; gap:8px;
+      margin-top:6px;
+    }
+    .tag{
+      padding:6px 8px; border-radius:999px;
+      border:1px solid rgba(255,255,255,.10);
       background:rgba(255,255,255,.04);
-    }
-    .kpi .n{font-size:20px;font-weight:900}
-    .kpi .t{font-size:12px;color:var(--muted);margin-top:2px}
-
-    .chips{
-      display:flex;
-      flex-wrap:wrap;
-      gap:8px;
-    }
-    .chip{
-      background:rgba(255,255,255,.05);
-      border:1px solid var(--border);
-      border-radius:999px;
-      padding:7px 10px;
-      font-size:12px;
-      color:var(--text);
-      display:flex;
-      gap:8px;
-      align-items:center;
-    }
-    .chip .c{
-      background:rgba(255,255,255,.08);
-      border:1px solid var(--border);
-      padding:1px 7px;
-      border-radius:999px;
-      font-weight:800;
-      font-size:12px;
-      color:var(--muted);
-    }
-
-    .smallTitle{
-      font-size:12px;
-      color:var(--muted);
-      margin:0 0 8px;
-      letter-spacing:.2px;
-    }
-    ul{
-      margin:0;
-      padding-left:18px;
-      color:var(--muted);
-      font-size:12px;
-    }
-    li{margin:5px 0}
-    .split{
-      display:grid;
-      grid-template-columns: 1fr;
-      gap:12px;
+      font-size:12px; color:#d7e6fb; font-weight:700;
     }
 
     table{
-      width:100%;
-      border-collapse:separate;
-      border-spacing:0;
-      overflow:hidden;
-      border-radius:16px;
-      border:1px solid var(--border);
-      background:rgba(0,0,0,.18);
+      width:100%; border-collapse:separate; border-spacing:0 8px;
     }
-    thead th{
-      text-align:left;
-      font-size:12px;
-      color:var(--muted);
-      padding:10px 10px;
-      border-bottom:1px solid var(--border);
-      background:rgba(0,0,0,.18);
+    td,th{ font-size:12px; }
+    th{
+      text-align:left; color:var(--muted); font-weight:700;
+      padding:0 10px 6px;
     }
-    tbody td{
+    .tr{
+      background:rgba(0,0,0,.18);
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:14px;
+    }
+    .tr td{
       padding:10px;
-      font-size:12px;
-      border-bottom:1px solid rgba(255,255,255,.06);
-      vertical-align:top;
+      border-top:1px solid rgba(255,255,255,.00);
     }
-    tbody tr:last-child td{border-bottom:none}
-    .mono{font-family:var(--mono)}
-    .decision{
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      min-width:72px;
-      padding:6px 10px;
-      border-radius:999px;
-      border:1px solid var(--border);
-      font-weight:850;
-      letter-spacing:.4px;
-      background:rgba(255,255,255,.05);
+    .badge{
+      padding:6px 10px; border-radius:999px;
+      font-weight:800; font-size:12px; display:inline-block;
+      border:1px solid rgba(255,255,255,.10);
     }
-    .decision.allow{color:#bff7ee; border-color:rgba(45,212,191,.45); background:rgba(45,212,191,.10)}
-    .decision.warn{color:#fff3c4; border-color:rgba(251,191,36,.55); background:rgba(251,191,36,.12)}
-    .decision.block{color:#ffd2da; border-color:rgba(251,113,133,.55); background:rgba(251,113,133,.12)}
+    .b-allow{ background:rgba(31,157,85,.18); color:#bff5d4; }
+    .b-warn{ background:rgba(199,138,25,.18); color:#ffe2b0; }
+    .b-block{ background:rgba(180,35,24,.20); color:#ffd0cc; }
 
     /* Modal */
     .modalBackdrop{
-      position:fixed; inset:0;
-      background:rgba(0,0,0,.55);
-      display:none;
-      align-items:center;
-      justify-content:center;
-      padding:18px;
-      z-index:9999;
+      position:fixed; inset:0; background:rgba(0,0,0,.62);
+      display:none; align-items:center; justify-content:center;
+      padding:18px; z-index:50;
     }
     .modal{
-      width:min(640px, 100%);
-      border-radius:18px;
+      width:min(720px, 96vw);
+      background:linear-gradient(180deg,var(--panel),var(--panel2));
       border:1px solid var(--border);
-      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
-      box-shadow: var(--shadow);
+      border-radius:18px;
+      box-shadow:var(--shadow);
       overflow:hidden;
     }
-    .modal .mHead{
-      padding:14px;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      border-bottom:1px solid var(--border);
-      background:rgba(0,0,0,.16);
+    .modalHeader{
+      display:flex; align-items:center; justify-content:space-between;
+      padding:14px 14px 10px;
+      border-bottom:1px solid rgba(255,255,255,.06);
     }
-    .modal .mHead h3{margin:0;font-size:14px;letter-spacing:.2px}
-    .modal .mBody{padding:14px}
+    .modalHeader .mh{ font-weight:900; letter-spacing:.2px; }
+    .modalBody{ padding:14px; color:#dbe7f7; }
+    .modalBody ul{ margin:10px 0 0 18px; color:#cfe0f5; }
+    .modalFooter{
+      padding:12px 14px;
+      border-top:1px solid rgba(255,255,255,.06);
+      display:flex; justify-content:flex-end;
+    }
   </style>
 </head>
 
 <body>
-  <div class="wrap">
-    <div class="topbar">
-      <div class="brand">
-        <div class="logo">V</div>
-        <div>
-          <h1>Validoon <span class="sub">Local decision engine — ALLOW / WARN / BLOCK</span></h1>
-        </div>
-      </div>
-
-      <div class="actions">
-        <div class="pill" title="No uploads, no network calls. Runs entirely in your browser.">
-          <span class="dot"></span>
-          <span>Privacy-first • Local-only</span>
-        </div>
-        <button id="btnInfo" class="btn ghost" type="button">Info</button>
-        <button id="btnClear" class="btn ghost" type="button">Clear</button>
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true"></div>
+      <div>
+        <div class="title">Validoon</div>
+        <div class="subtitle">Local decision engine — ALLOW / WARN / BLOCK (no network calls)</div>
       </div>
     </div>
-
-    <div class="grid">
-      <!-- Left: Input -->
-      <div class="card">
-        <div class="head">
-          <div>
-            <h2>Input Stream</h2>
-            <p>One item per line (URLs, logs, SQL, base64, suspicious strings).</p>
-          </div>
-          <div class="actions">
-            <button id="btnLoadA" class="btn" type="button">Load Test A</button>
-            <button id="btnLoadB" class="btn" type="button">Load Test B</button>
-          </div>
-        </div>
-        <div class="body">
-          <textarea id="inputArea" spellcheck="false" placeholder="Paste here..."></textarea>
-
-          <div class="row">
-            <div class="left">
-              <button id="btnScan" class="btn primary" type="button">Execute Scan</button>
-              <button id="btnExport" class="btn" type="button">Export JSON</button>
-            </div>
-            <div class="hint">Tip: Use Test A/B to validate end-to-end on any device/network.</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Right: Verdict -->
-      <div class="card">
-        <div class="head">
-          <div>
-            <h2>System Verdict</h2>
-            <p>Instant local scoring — no network calls.</p>
-          </div>
-        </div>
-        <div class="verdict">
-          <div class="verdictBox">
-            <div class="verdictTop">
-              <div style="flex:1">
-                <div id="badgeVerdict" class="badge secure">SECURE</div>
-              </div>
-            </div>
-
-            <div class="kpis">
-              <div class="kpi">
-                <div id="kpiPeak" class="n">0%</div>
-                <div class="t">Peak severity</div>
-              </div>
-              <div class="kpi">
-                <div id="kpiConf" class="n">0%</div>
-                <div class="t">Confidence</div>
-              </div>
-              <div class="kpi">
-                <div id="kpiScans" class="n">0</div>
-                <div class="t">Scans</div>
-              </div>
-              <div class="kpi">
-                <div style="display:flex; gap:10px; align-items:flex-end; justify-content:space-between">
-                  <div>
-                    <div id="kpiAllow" class="n">0</div>
-                    <div class="t">Allow</div>
-                  </div>
-                  <div>
-                    <div id="kpiWarn" class="n">0</div>
-                    <div class="t">Warn</div>
-                  </div>
-                  <div>
-                    <div id="kpiBlock" class="n">0</div>
-                    <div class="t">Block</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div style="margin-top:12px">
-              <p class="smallTitle">Active Signals</p>
-              <div id="signalChips" class="chips"></div>
-            </div>
-
-            <div class="split" style="margin-top:12px">
-              <div>
-                <p class="smallTitle">Primary reasons</p>
-                <ul id="listReasons"></ul>
-              </div>
-              <div>
-                <p class="smallTitle">Remediation steps</p>
-                <ul id="listRemediate"></ul>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+    <div class="row" style="margin:0">
+      <button id="infoBtn" class="secondary">Info</button>
+      <button id="clearBtn" class="danger">Clear</button>
     </div>
+  </div>
 
-    <!-- Findings table -->
-    <div class="card" style="margin-top:14px">
-      <div class="head">
-        <div>
-          <h2>Per-line Findings</h2>
-          <p>Each input line gets an independent decision.</p>
-        </div>
-      </div>
-
+  <div class="grid">
+    <div class="card">
+      <h3>Input Stream</h3>
       <div class="body">
-        <table>
-          <thead>
-            <tr>
-              <th style="width:110px">Type</th>
-              <th>Input</th>
-              <th style="width:110px">Decision</th>
-              <th style="width:90px">Severity</th>
-              <th style="width:110px">Confidence</th>
-              <th style="width:90px">Entropy</th>
-            </tr>
-          </thead>
-          <tbody id="tbodyRows">
-            <!-- Rows injected -->
-          </tbody>
-        </table>
+        <textarea id="inputStream" placeholder="One item per line (URLs, logs, SQL, base64, suspicious strings)..."></textarea>
+        <div class="row">
+          <button id="loadTestA">Load Test A</button>
+          <button id="loadTestB">Load Test B</button>
+          <button id="executeBtn">Execute Scan</button>
+          <button id="exportBtn" class="secondary">Export JSON</button>
+        </div>
+        <div style="margin-top:10px;color:var(--muted);font-size:12px">
+          Tip: Use Test A/B to validate end-to-end on any device/network.
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>System Verdict</h3>
+      <div class="verdict">
+        <div id="verdictBox" class="verdictBox">
+          <div>
+            <div style="color:var(--muted);font-size:12px;font-weight:800">Instant local scoring — no network calls.</div>
+            <div id="verdictText" class="verdictText">SECURE</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+            <div class="pill">Peak severity: <span id="peakSeverity">0%</span></div>
+            <div class="pill">Confidence: <span id="confidence">0%</span></div>
+          </div>
+        </div>
+
+        <div class="signals" id="signals"></div>
+
+        <div class="kpi">
+          <div class="k"><div class="n" id="kScans">0</div><div class="l">Scans</div></div>
+          <div class="k"><div class="n" id="kAllow">0</div><div class="l">Allow</div></div>
+          <div class="k"><div class="n" id="kWarn">0</div><div class="l">Warn</div></div>
+          <div class="k"><div class="n" id="kBlock">0</div><div class="l">Block</div></div>
+        </div>
+
+        <div style="margin-top:10px;color:var(--muted);font-size:12px">
+          Primary reasons and remediation steps appear per row in the table.
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- Modal -->
-  <div id="modalBackdrop" class="modalBackdrop" role="dialog" aria-modal="true" aria-hidden="true">
-    <div class="modal">
-      <div class="mHead">
-        <h3>Validoon — Info</h3>
-        <button id="btnCloseModal" class="btn" type="button">Close</button>
+  <div class="card" style="margin-top:14px">
+    <h3>Per-line Findings</h3>
+    <div class="body">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:44%">Input</th>
+            <th style="width:10%">Type</th>
+            <th style="width:12%">Decision</th>
+            <th style="width:10%">Severity</th>
+            <th style="width:10%">Confidence</th>
+            <th style="width:14%">Entropy</th>
+          </tr>
+        </thead>
+        <tbody id="rowsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Info Modal -->
+  <div class="modalBackdrop" id="infoModal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="infoTitle">
+      <div class="modalHeader">
+        <div class="mh" id="infoTitle">Validoon — Info</div>
+        <button id="closeInfo" class="secondary">Close</button>
       </div>
-      <div class="mBody">
-        <ul style="color:var(--text)">
-          <li><b>Privacy-first</b>, local-only decision engine that triages pasted inputs (URLs, logs, tokens, payloads) and returns a clear verdict in seconds: <b>ALLOW / WARN / BLOCK</b>.</li>
-          <li><b>No uploads</b>. <b>No accounts</b>. Runs entirely in your browser.</li>
-          <li>Signals: phishing-style URLs, SQL/XSS/CMD/LFI patterns, obfuscation, homograph risk.</li>
-          <li><b>Export JSON</b> report for tickets / notes / SOC handoff.</li>
-          <li>Advanced analysis can be added later (still local).</li>
+      <div class="modalBody">
+        <div><b>Privacy-first</b>, local-only decision engine that triages pasted inputs (URLs, logs, tokens, payloads) and returns a clear verdict in seconds: <b>ALLOW / WARN / BLOCK</b>. No uploads. No accounts. Runs entirely in your browser.</div>
+        <ul>
+          <li>Immediate value: paste → scan → actionable reasons + steps</li>
+          <li>Signals: phishing-style URLs, SQL/XSS/CMD/LFI patterns, obfuscation</li>
+          <li>Export JSON report for tickets / notes / SOC handoff</li>
+          <li>Advanced analysis can be added later (still local)</li>
         </ul>
       </div>
+      <div class="modalFooter">
+        <button id="closeInfo2">Close</button>
+      </div>
     </div>
   </div>
 
-  <!-- App script -->
   <script src="./app.js" defer></script>
 </body>
 </html>
