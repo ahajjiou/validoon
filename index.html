@@ -1,110 +1,143 @@
+<!-- index.html -->
 <!doctype html>
 <html lang="en" dir="ltr">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Validoon</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Validoon — Local Decision Engine</title>
 
-  <!-- CSS -->
+  <!-- Keep it local-only -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'">
+
+  <meta name="description" content="Validoon — local-only decision engine to triage pasted inputs. ALLOW / WARN / BLOCK. No uploads. No network calls." />
+  <meta name="referrer" content="no-referrer" />
+
   <link rel="stylesheet" href="./style.css" />
-
 </head>
+
 <body>
-  <div class="container">
+  <div class="app">
     <header class="topbar">
       <div class="brand">
         <div class="logo">V</div>
         <div class="brandText">
           <div class="brandName">Validoon</div>
-          <div class="brandSub">Local decision engine — ALLOW / WARN / BLOCK</div>
+          <div class="brandSub">Local decision engine — <span class="muted">ALLOW / WARN / BLOCK</span></div>
         </div>
       </div>
 
       <div class="topActions">
-        <button id="btnInfo" class="btn ghost">Info</button>
-        <button id="btnClear" class="btn danger">Clear</button>
+        <button id="btnInfo" class="btn btn-ghost" type="button" aria-haspopup="dialog" aria-controls="infoModal">Info</button>
+        <button id="btnClear" class="btn btn-danger" type="button">Clear</button>
       </div>
     </header>
 
     <main class="grid">
-      <!-- LEFT -->
-      <section class="card">
-        <div class="cardHead">
-          <h3>Input Stream</h3>
-          <div class="cardHint">One item per line (URLs, logs, SQL, base64, suspicious strings).</div>
-        </div>
-
-        <textarea id="inputStream" spellcheck="false" placeholder="Paste input here..."></textarea>
-
-        <div class="actions">
-          <button id="btnExecute" class="btn primary">Execute Scan</button>
-          <button id="btnExport" class="btn">Export JSON</button>
-          <button id="btnLoadA" class="btn">Load Test A</button>
-          <button id="btnLoadB" class="btn">Load Test B</button>
-        </div>
-
-        <div class="tip">
-          Tip: use Test A/B to validate end-to-end on any device/network.
-        </div>
-      </section>
-
-      <!-- RIGHT -->
-      <section class="card">
-        <div class="cardHead">
-          <h3>System Verdict</h3>
-          <div class="cardHint">Instant local scoring — no network calls.</div>
-        </div>
-
-        <div id="verdictBox" class="verdict secure">SECURE</div>
-
-        <div class="kpis">
-          <div class="kpi">
-            <div class="kpiLabel">Peak severity</div>
-            <div id="peakSeverity" class="kpiValue">0%</div>
+      <!-- INPUT -->
+      <section class="card cardTall">
+        <div class="cardHeader">
+          <div>
+            <h2>Input Stream</h2>
+            <p class="sub">One item per line (URLs, logs, SQL, base64, suspicious strings).</p>
           </div>
-          <div class="kpi">
-            <div class="kpiLabel">Confidence</div>
-            <div id="confidence" class="kpiValue">0%</div>
+          <div class="miniActions">
+            <button id="btnLoadA" class="btn btn-soft" type="button">Load Test A</button>
+            <button id="btnLoadB" class="btn btn-soft" type="button">Load Test B</button>
           </div>
         </div>
 
-        <div class="badgesWrap">
-          <div class="sectionTitle">Signals</div>
-          <div id="signals" class="badges"></div>
+        <div class="editorWrap">
+          <textarea id="input" class="editor" spellcheck="false" placeholder="Paste lines here..."></textarea>
         </div>
 
-        <div class="miniGrid">
-          <div class="mini">
-            <div class="miniLabel">Scans</div>
-            <div id="countScans" class="miniValue">0</div>
-          </div>
-          <div class="mini">
-            <div class="miniLabel">Allow</div>
-            <div id="countAllow" class="miniValue green">0</div>
-          </div>
-          <div class="mini">
-            <div class="miniLabel">Warn</div>
-            <div id="countWarn" class="miniValue yellow">0</div>
-          </div>
-          <div class="mini">
-            <div class="miniLabel">Block</div>
-            <div id="countBlock" class="miniValue red">0</div>
+        <div class="cardFooter">
+          <button id="btnRun" class="btn btn-primary" type="button">
+            Execute Scan
+          </button>
+
+          <button id="btnExport" class="btn btn-ghost" type="button">
+            Export JSON
+          </button>
+
+          <div class="hint">
+            Tip: Use Test A/B to validate end-to-end on any device/network.
           </div>
         </div>
       </section>
 
-      <!-- BOTTOM FULL WIDTH -->
-      <section class="card full">
-        <div class="cardHead">
-          <h3>Per-line Findings</h3>
-          <div class="cardHint">Each input line gets an independent decision.</div>
+      <!-- VERDICT -->
+      <section class="card">
+        <div class="cardHeader">
+          <div>
+            <h2>System Verdict</h2>
+            <p class="sub">Instant local scoring — no network calls.</p>
+          </div>
+        </div>
+
+        <div id="verdictBanner" class="verdictBanner verdict-secure">
+          <div class="verdictLabel">SECURE</div>
+        </div>
+
+        <div class="statsRow">
+          <div class="stat">
+            <div class="statLabel">Peak severity</div>
+            <div id="peakSeverity" class="statValue">0%</div>
+          </div>
+          <div class="stat">
+            <div class="statLabel">Confidence</div>
+            <div id="peakConfidence" class="statValue">0%</div>
+          </div>
+        </div>
+
+        <div class="chipsTitle">Active signals</div>
+        <div id="signals" class="chips"></div>
+
+        <div class="countsGrid">
+          <div class="countBox">
+            <div class="countLabel">Scans</div>
+            <div id="cntScans" class="countValue">0</div>
+          </div>
+          <div class="countBox allow">
+            <div class="countLabel">Allow</div>
+            <div id="cntAllow" class="countValue">0</div>
+          </div>
+          <div class="countBox warn">
+            <div class="countLabel">Warn</div>
+            <div id="cntWarn" class="countValue">0</div>
+          </div>
+          <div class="countBox block">
+            <div class="countLabel">Block</div>
+            <div id="cntBlock" class="countValue">0</div>
+          </div>
+        </div>
+
+        <div class="twoCols">
+          <div>
+            <div class="listTitle">Primary reasons</div>
+            <ul id="reasons" class="bullets"></ul>
+          </div>
+          <div>
+            <div class="listTitle">Remediation steps</div>
+            <ul id="steps" class="bullets"></ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- FINDINGS -->
+      <section class="card cardWide">
+        <div class="cardHeader">
+          <div>
+            <h2>Per-line Findings</h2>
+            <p class="sub">Each input line gets an independent decision.</p>
+          </div>
         </div>
 
         <div class="tableWrap">
-          <table>
+          <table class="tbl">
             <thead>
               <tr>
-                <th>Item</th>
+                <th>Input</th>
                 <th>Type</th>
                 <th>Decision</th>
                 <th>Severity</th>
@@ -112,34 +145,52 @@
                 <th>Entropy</th>
               </tr>
             </thead>
-            <tbody id="findingsBody"></tbody>
+            <tbody id="tbody">
+              <tr class="emptyRow">
+                <td colspan="6">No results yet. Paste inputs and click Execute Scan.</td>
+              </tr>
+            </tbody>
           </table>
+        </div>
+
+        <div class="footerNote">
+          Local-only counters (no identity, no network, no tracking). Reset with Clear.
         </div>
       </section>
     </main>
+
+    <footer class="footer">
+      <span class="muted">Validoon — privacy-first, local-only.</span>
+    </footer>
   </div>
 
   <!-- INFO MODAL -->
-  <div id="infoModal" class="modal" aria-hidden="true">
-    <div class="modal-box" role="dialog" aria-modal="true" aria-label="Validoon Info">
-      <h2>Validoon — Info</h2>
-      <p>
-        Privacy-first, local-only decision engine that triages pasted inputs (URLs, logs, tokens, payloads) and returns
-        a clear verdict in seconds: <b>ALLOW / WARN / BLOCK</b>. No uploads. No accounts. Runs entirely in your browser.
-      </p>
-      <ul>
-        <li>Immediate value: paste → scan → actionable reasons + steps</li>
-        <li>Signals: phishing-style URLs, SQL/XSS/CMD/LFI patterns, obfuscation</li>
-        <li>Export JSON report for tickets / notes / SOC handoff</li>
-        <li>Advanced analysis can be added later (still local)</li>
-      </ul>
-      <div class="actions right">
-        <button id="closeInfo" class="btn primary">Close</button>
+  <div id="infoModal" class="modalBackdrop" role="dialog" aria-modal="true" aria-labelledby="infoTitle" aria-hidden="true">
+    <div class="modal">
+      <div class="modalHeader">
+        <div>
+          <div id="infoTitle" class="modalTitle">Validoon — Info</div>
+          <div class="modalSub">Privacy-first, local-only. No uploads.</div>
+        </div>
+        <button id="btnInfoCloseX" class="iconBtn" type="button" aria-label="Close">✕</button>
+      </div>
+
+      <div class="modalBody">
+        <ul class="bullets">
+          <li><b>Local-only</b>: analysis runs entirely in your browser.</li>
+          <li><b>No uploads</b>, no accounts, no tracking.</li>
+          <li><b>Immediate value</b>: paste → scan → actionable reasons + steps.</li>
+          <li><b>Signals</b>: phishing-style URLs, SQL/XSS/CMD/LFI patterns, obfuscation, redirects, punycode.</li>
+          <li><b>Export</b>: JSON report for tickets / notes / SOC handoff.</li>
+        </ul>
+      </div>
+
+      <div class="modalFooter">
+        <button id="btnInfoClose" class="btn btn-primary" type="button">Close</button>
       </div>
     </div>
   </div>
 
-  <!-- JS -->
-  <script src="./app.js"></script>
+  <script src="./app.js" defer></script>
 </body>
 </html>
