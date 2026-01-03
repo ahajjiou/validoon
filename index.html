@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Validoon</title>
 
-  <!-- Strict CSP: local-only, no external scripts -->
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self';
                  script-src 'self';
@@ -16,292 +15,30 @@
                  base-uri 'none';
                  form-action 'none';
                  frame-ancestors 'none';" />
-
-  <style>
-    :root{
-      --bg:#0b1220; --panel:#0f1b2e; --panel2:#0c1728;
-      --border:#1f2a3a; --text:#e6edf6; --muted:#9fb1c6;
-      --good:#1f9d55; --warn:#c78a19; --bad:#b42318;
-      --btn:#1b3a67; --btn2:#203a5a;
-      --shadow: 0 12px 30px rgba(0,0,0,.35);
-      --r:16px;
-      font-synthesis-weight:none;
-    }
-    *{box-sizing:border-box}
-    body{
-      margin:0; background:radial-gradient(1100px 700px at 70% 40%, #0f2a4d 0%, var(--bg) 55%);
-      color:var(--text); font: 14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Arial;
-      padding:22px;
-    }
-    .topbar{
-      display:flex; align-items:center; justify-content:space-between; gap:12px;
-      margin-bottom:14px;
-    }
-    .brand{
-      display:flex; align-items:center; gap:10px;
-    }
-    .logo{
-      width:34px;height:34px;border-radius:10px;
-      background:linear-gradient(135deg,#1cc8ff,#6b7cff);
-      box-shadow:var(--shadow);
-    }
-    .title{
-      font-weight:700; letter-spacing:.2px;
-    }
-    .subtitle{
-      color:var(--muted); font-size:12px; margin-top:2px;
-    }
-    .grid{
-      display:grid;
-      grid-template-columns: 1.25fr .9fr;
-      gap:14px;
-    }
-    .card{
-      background:linear-gradient(180deg,var(--panel),var(--panel2));
-      border:1px solid var(--border);
-      border-radius:var(--r);
-      box-shadow:var(--shadow);
-      overflow:hidden;
-    }
-    .card h3{
-      margin:0; padding:14px 14px 10px;
-      font-size:13px; letter-spacing:.2px;
-      border-bottom:1px solid rgba(255,255,255,.06);
-      color:#dbe7f7;
-    }
-    .card .body{ padding:14px; }
-    textarea{
-      width:100%; min-height:240px; resize:vertical;
-      background:#081222; color:var(--text);
-      border:1px solid rgba(255,255,255,.10);
-      border-radius:12px;
-      padding:12px;
-      outline:none;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-      font-size:12px;
-    }
-    .row{
-      display:flex; gap:10px; flex-wrap:wrap;
-      margin-top:12px;
-    }
-    button{
-      border:1px solid rgba(255,255,255,.10);
-      background:linear-gradient(180deg,var(--btn),var(--btn2));
-      color:var(--text);
-      padding:10px 12px;
-      border-radius:12px;
-      cursor:pointer;
-      font-weight:600;
-    }
-    button.secondary{ background:transparent; }
-    button.danger{ background:linear-gradient(180deg,#7a1b1b,#5a1414); }
-    button:disabled{ opacity:.55; cursor:not-allowed; }
-
-    .verdict{
-      padding:14px;
-      display:flex; flex-direction:column; gap:10px;
-    }
-    .verdictBox{
-      border-radius:14px;
-      padding:16px;
-      border:1px solid rgba(255,255,255,.10);
-      background:rgba(255,255,255,.04);
-      display:flex; align-items:center; justify-content:space-between; gap:12px;
-      min-height:74px;
-    }
-    .verdictText{
-      font-size:32px; font-weight:900; letter-spacing:1px;
-    }
-    .pill{
-      display:inline-flex; align-items:center; gap:8px;
-      padding:8px 10px; border-radius:999px;
-      border:1px solid rgba(255,255,255,.10);
-      background:rgba(0,0,0,.18);
-      color:var(--muted); font-weight:600; font-size:12px;
-    }
-    .kpi{
-      display:grid; grid-template-columns: repeat(4, 1fr); gap:10px;
-    }
-    .k{
-      border:1px solid rgba(255,255,255,.08);
-      background:rgba(0,0,0,.16);
-      border-radius:14px;
-      padding:12px;
-      text-align:center;
-    }
-    .k .n{ font-size:20px; font-weight:900; }
-    .k .l{ color:var(--muted); font-size:12px; margin-top:2px; }
-
-    .signals{
-      display:flex; flex-wrap:wrap; gap:8px;
-      margin-top:6px;
-    }
-    .tag{
-      padding:6px 8px; border-radius:999px;
-      border:1px solid rgba(255,255,255,.10);
-      background:rgba(255,255,255,.04);
-      font-size:12px; color:#d7e6fb; font-weight:700;
-    }
-
-    table{
-      width:100%; border-collapse:separate; border-spacing:0 8px;
-    }
-    td,th{ font-size:12px; }
-    th{
-      text-align:left; color:var(--muted); font-weight:700;
-      padding:0 10px 6px;
-    }
-    .tr{
-      background:rgba(0,0,0,.18);
-      border:1px solid rgba(255,255,255,.08);
-      border-radius:14px;
-    }
-    .tr td{
-      padding:10px;
-      border-top:1px solid rgba(255,255,255,.00);
-    }
-    .badge{
-      padding:6px 10px; border-radius:999px;
-      font-weight:800; font-size:12px; display:inline-block;
-      border:1px solid rgba(255,255,255,.10);
-    }
-    .b-allow{ background:rgba(31,157,85,.18); color:#bff5d4; }
-    .b-warn{ background:rgba(199,138,25,.18); color:#ffe2b0; }
-    .b-block{ background:rgba(180,35,24,.20); color:#ffd0cc; }
-
-    /* Modal */
-    .modalBackdrop{
-      position:fixed; inset:0; background:rgba(0,0,0,.62);
-      display:none; align-items:center; justify-content:center;
-      padding:18px; z-index:50;
-    }
-    .modal{
-      width:min(720px, 96vw);
-      background:linear-gradient(180deg,var(--panel),var(--panel2));
-      border:1px solid var(--border);
-      border-radius:18px;
-      box-shadow:var(--shadow);
-      overflow:hidden;
-    }
-    .modalHeader{
-      display:flex; align-items:center; justify-content:space-between;
-      padding:14px 14px 10px;
-      border-bottom:1px solid rgba(255,255,255,.06);
-    }
-    .modalHeader .mh{ font-weight:900; letter-spacing:.2px; }
-    .modalBody{ padding:14px; color:#dbe7f7; }
-    .modalBody ul{ margin:10px 0 0 18px; color:#cfe0f5; }
-    .modalFooter{
-      padding:12px 14px;
-      border-top:1px solid rgba(255,255,255,.06);
-      display:flex; justify-content:flex-end;
-    }
-  </style>
 </head>
+<body style="margin:0;background:#0b1220;color:#e6edf6;font:14px system-ui">
+  <div style="padding:16px">
+    <div style="font-weight:900;font-size:18px">Validoon</div>
+    <div style="opacity:.75;margin-top:6px">If buttons don’t work, the problem is that app.js is not the expected version.</div>
 
-<body>
-  <div class="topbar">
-    <div class="brand">
-      <div class="logo" aria-hidden="true"></div>
-      <div>
-        <div class="title">Validoon</div>
-        <div class="subtitle">Local decision engine — ALLOW / WARN / BLOCK (no network calls)</div>
-      </div>
-    </div>
-    <div class="row" style="margin:0">
-      <button id="infoBtn" class="secondary">Info</button>
-      <button id="clearBtn" class="danger">Clear</button>
-    </div>
-  </div>
-
-  <div class="grid">
-    <div class="card">
-      <h3>Input Stream</h3>
-      <div class="body">
-        <textarea id="inputStream" placeholder="One item per line (URLs, logs, SQL, base64, suspicious strings)..."></textarea>
-        <div class="row">
-          <button id="loadTestA">Load Test A</button>
-          <button id="loadTestB">Load Test B</button>
-          <button id="executeBtn">Execute Scan</button>
-          <button id="exportBtn" class="secondary">Export JSON</button>
-        </div>
-        <div style="margin-top:10px;color:var(--muted);font-size:12px">
-          Tip: Use Test A/B to validate end-to-end on any device/network.
-        </div>
-      </div>
+    <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
+      <button id="loadTestA">Load Test A</button>
+      <button id="loadTestB">Load Test B</button>
+      <button id="executeBtn">Execute Scan</button>
+      <button id="exportBtn">Export JSON</button>
+      <button id="infoBtn">Info</button>
+      <button id="clearBtn">Clear</button>
     </div>
 
-    <div class="card">
-      <h3>System Verdict</h3>
-      <div class="verdict">
-        <div id="verdictBox" class="verdictBox">
-          <div>
-            <div style="color:var(--muted);font-size:12px;font-weight:800">Instant local scoring — no network calls.</div>
-            <div id="verdictText" class="verdictText">SECURE</div>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
-            <div class="pill">Peak severity: <span id="peakSeverity">0%</span></div>
-            <div class="pill">Confidence: <span id="confidence">0%</span></div>
-          </div>
-        </div>
+    <textarea id="inputStream" style="width:100%;height:220px;margin-top:12px"></textarea>
 
-        <div class="signals" id="signals"></div>
-
-        <div class="kpi">
-          <div class="k"><div class="n" id="kScans">0</div><div class="l">Scans</div></div>
-          <div class="k"><div class="n" id="kAllow">0</div><div class="l">Allow</div></div>
-          <div class="k"><div class="n" id="kWarn">0</div><div class="l">Warn</div></div>
-          <div class="k"><div class="n" id="kBlock">0</div><div class="l">Block</div></div>
-        </div>
-
-        <div style="margin-top:10px;color:var(--muted);font-size:12px">
-          Primary reasons and remediation steps appear per row in the table.
-        </div>
-      </div>
+    <div style="margin-top:12px;padding:10px;border:1px solid #223247;border-radius:10px">
+      <div>Console version marker should appear after load:</div>
+      <div style="font-family:ui-monospace,Menlo,Consolas,monospace;opacity:.9">[VALIDOON_LOADED] v=2026-01-03_14-00</div>
     </div>
   </div>
 
-  <div class="card" style="margin-top:14px">
-    <h3>Per-line Findings</h3>
-    <div class="body">
-      <table>
-        <thead>
-          <tr>
-            <th style="width:44%">Input</th>
-            <th style="width:10%">Type</th>
-            <th style="width:12%">Decision</th>
-            <th style="width:10%">Severity</th>
-            <th style="width:10%">Confidence</th>
-            <th style="width:14%">Entropy</th>
-          </tr>
-        </thead>
-        <tbody id="rowsBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- Info Modal -->
-  <div class="modalBackdrop" id="infoModal">
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="infoTitle">
-      <div class="modalHeader">
-        <div class="mh" id="infoTitle">Validoon — Info</div>
-        <button id="closeInfo" class="secondary">Close</button>
-      </div>
-      <div class="modalBody">
-        <div><b>Privacy-first</b>, local-only decision engine that triages pasted inputs (URLs, logs, tokens, payloads) and returns a clear verdict in seconds: <b>ALLOW / WARN / BLOCK</b>. No uploads. No accounts. Runs entirely in your browser.</div>
-        <ul>
-          <li>Immediate value: paste → scan → actionable reasons + steps</li>
-          <li>Signals: phishing-style URLs, SQL/XSS/CMD/LFI patterns, obfuscation</li>
-          <li>Export JSON report for tickets / notes / SOC handoff</li>
-          <li>Advanced analysis can be added later (still local)</li>
-        </ul>
-      </div>
-      <div class="modalFooter">
-        <button id="closeInfo2">Close</button>
-      </div>
-    </div>
-  </div>
-
-  <script src="./app.js" defer></script>
+  <!-- IMPORTANT: cache-bust -->
+  <script src="/app.js?v=2026-01-03_14-00" defer></script>
 </body>
 </html>
