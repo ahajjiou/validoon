@@ -1,44 +1,172 @@
+<!-- index.html -->
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Validoon</title>
-
-  <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self';
-                 script-src 'self';
-                 style-src 'self' 'unsafe-inline';
-                 img-src 'self' data:;
-                 connect-src 'none';
-                 font-src 'self';
-                 base-uri 'none';
-                 form-action 'none';
-                 frame-ancestors 'none';" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Validoon — Local decision engine</title>
+  <meta name="color-scheme" content="dark light" />
+  <style>
+    :root{
+      --bg:#0b1220; --panel:#0f1b33; --panel2:#0c1730; --text:#e6eefc; --muted:#a8b6d2;
+      --ok:#2dd4bf; --warn:#f59e0b; --bad:#ef4444; --line:rgba(255,255,255,.08);
+      --btn:#152a52;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Apple Color Emoji","Segoe UI Emoji";
+    }
+    html,body{height:100%}
+    body{margin:0;background:radial-gradient(1200px 800px at 20% 10%, #10234a 0%, var(--bg) 55%), var(--bg); color:var(--text); font-family:var(--sans);}
+    .wrap{max-width:1200px;margin:0 auto;padding:18px;}
+    .top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;}
+    .brand{display:flex;align-items:center;gap:10px}
+    .logo{width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,#2dd4bf,#60a5fa);display:inline-block}
+    h1{font-size:18px;margin:0}
+    .sub{font-size:12px;color:var(--muted)}
+    .grid{display:grid;grid-template-columns:1.4fr .9fr;gap:14px}
+    @media(max-width:980px){.grid{grid-template-columns:1fr}}
+    .card{background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.02));border:1px solid var(--line);border-radius:16px;overflow:hidden}
+    .card .hd{padding:12px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .card .bd{padding:12px 14px}
+    .btns{display:flex;gap:8px;flex-wrap:wrap}
+    button{
+      background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.02));
+      border:1px solid var(--line); color:var(--text);
+      padding:8px 10px; border-radius:12px; cursor:pointer; font-weight:600; font-size:12px;
+    }
+    button.primary{background:linear-gradient(180deg,rgba(45,212,191,.35),rgba(45,212,191,.12));border-color:rgba(45,212,191,.35)}
+    button:hover{filter:brightness(1.08)}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    textarea{
+      width:100%; min-height:320px; resize:vertical;
+      background:rgba(0,0,0,.25); color:var(--text);
+      border:1px solid var(--line); border-radius:14px;
+      padding:12px; font-family:var(--mono); font-size:12px; line-height:1.4;
+      outline:none;
+    }
+    .hint{color:var(--muted);font-size:12px;margin-top:8px}
+    .verdict{
+      border-radius:16px;border:1px solid var(--line);
+      padding:14px;
+      background:linear-gradient(135deg,rgba(255,255,255,.05),rgba(255,255,255,.02));
+    }
+    .verdict .label{font-size:11px;color:var(--muted);letter-spacing:.12em;text-transform:uppercase}
+    .verdict .big{font-size:32px;font-weight:900;margin:6px 0 10px 0}
+    .pillrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+    .pill{font-size:11px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:rgba(0,0,0,.18)}
+    .pill.ok{border-color:rgba(45,212,191,.35)}
+    .pill.warn{border-color:rgba(245,158,11,.35)}
+    .pill.bad{border-color:rgba(239,68,68,.35)}
+    .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}
+    .kpi{border:1px solid var(--line);border-radius:14px;padding:10px;background:rgba(0,0,0,.15)}
+    .kpi .t{font-size:11px;color:var(--muted)}
+    .kpi .v{font-size:18px;font-weight:800;margin-top:4px}
+    .signals{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+    .sig{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-radius:12px;padding:6px 10px;background:rgba(0,0,0,.12)}
+    .table{margin-top:12px;border:1px solid var(--line);border-radius:16px;overflow:hidden}
+    .thead,.trow{display:grid;grid-template-columns:1.1fr .55fr .55fr .45fr .55fr .45fr;gap:0;align-items:center}
+    .thead{background:rgba(255,255,255,.05);font-size:11px;color:var(--muted);padding:10px 12px;border-bottom:1px solid var(--line)}
+    .trow{padding:10px 12px;border-bottom:1px solid var(--line);font-size:12px}
+    .trow:last-child{border-bottom:none}
+    .mono{font-family:var(--mono)}
+    .tag{display:inline-flex;align-items:center;gap:6px}
+    .dot{width:8px;height:8px;border-radius:99px;display:inline-block}
+    .dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.bad{background:var(--bad)}
+    .foot{margin-top:10px;color:var(--muted);font-size:11px}
+    dialog{border:1px solid var(--line);border-radius:16px;background:#0b152c;color:var(--text);max-width:720px}
+    dialog::backdrop{background:rgba(0,0,0,.55)}
+    dialog .dhd{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line)}
+    dialog .dbd{padding:12px 14px}
+    .list{margin:0;padding-left:18px;color:var(--muted);font-size:12px}
+    .em{color:var(--text)}
+  </style>
 </head>
-<body style="margin:0;background:#0b1220;color:#e6edf6;font:14px system-ui">
-  <div style="padding:16px">
-    <div style="font-weight:900;font-size:18px">Validoon</div>
-    <div style="opacity:.75;margin-top:6px">If buttons don’t work, the problem is that app.js is not the expected version.</div>
-
-    <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
-      <button id="loadTestA">Load Test A</button>
-      <button id="loadTestB">Load Test B</button>
-      <button id="executeBtn">Execute Scan</button>
-      <button id="exportBtn">Export JSON</button>
-      <button id="infoBtn">Info</button>
-      <button id="clearBtn">Clear</button>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div class="brand">
+        <span class="logo" aria-hidden="true"></span>
+        <div>
+          <h1>Validoon</h1>
+          <div class="sub">Local decision engine — ALLOW / WARN / BLOCK • no uploads • no network calls</div>
+        </div>
+      </div>
+      <div class="btns">
+        <button id="btnLoadA">Load Test A</button>
+        <button id="btnLoadB">Load Test B</button>
+        <button class="primary" id="btnScan">Execute Scan</button>
+        <button id="btnExport">Export JSON</button>
+        <button id="btnInfo">Info</button>
+        <button id="btnClear">Clear</button>
+      </div>
     </div>
 
-    <textarea id="inputStream" style="width:100%;height:220px;margin-top:12px"></textarea>
+    <div class="grid">
+      <div class="card">
+        <div class="hd">
+          <div>
+            <div class="label">Input Stream</div>
+            <div class="sub">One item per line (URLs, logs, SQL, base64, suspicious strings).</div>
+          </div>
+        </div>
+        <div class="bd">
+          <textarea id="input" spellcheck="false" placeholder="Paste here..."></textarea>
+          <div class="hint">Tip: Use Test A/B to validate end-to-end on any device/network.</div>
+          <div class="foot mono" id="buildStamp"></div>
+        </div>
+      </div>
 
-    <div style="margin-top:12px;padding:10px;border:1px solid #223247;border-radius:10px">
-      <div>Console version marker should appear after load:</div>
-      <div style="font-family:ui-monospace,Menlo,Consolas,monospace;opacity:.9">[VALIDOON_LOADED] v=2026-01-03_14-00</div>
+      <div class="card">
+        <div class="hd">
+          <div>
+            <div class="label">System Verdict</div>
+            <div class="sub">Instant local scoring — no network calls.</div>
+          </div>
+        </div>
+        <div class="bd">
+          <div class="verdict" id="verdictBox">
+            <div class="label">Verdict</div>
+            <div class="big" id="verdictText">SECURE</div>
+            <div class="pillrow">
+              <div class="pill" id="peakSev">Peak severity: 0%</div>
+              <div class="pill" id="peakConf">Confidence: 0%</div>
+            </div>
+            <div class="kpis">
+              <div class="kpi"><div class="t">Scans</div><div class="v" id="kScans">0</div></div>
+              <div class="kpi"><div class="t">Allow</div><div class="v" id="kAllow">0</div></div>
+              <div class="kpi"><div class="t">Warn</div><div class="v" id="kWarn">0</div></div>
+              <div class="kpi"><div class="t">Block</div><div class="v" id="kBlock">0</div></div>
+            </div>
+            <div class="signals" id="signals"></div>
+            <div class="foot" id="reco"></div>
+          </div>
+
+          <div class="table" id="table">
+            <div class="thead">
+              <div>Input</div><div>Type</div><div>Decision</div><div>Sev</div><div>Conf</div><div>Entropy</div>
+            </div>
+            <div id="rows"></div>
+          </div>
+        </div>
+      </div>
     </div>
+
+    <dialog id="infoDlg">
+      <div class="dhd">
+        <div class="em">Validoon — Info</div>
+        <button id="btnCloseInfo">Close</button>
+      </div>
+      <div class="dbd">
+        <ul class="list">
+          <li><span class="em">Privacy-first:</span> local-only decision engine that triages pasted inputs (URLs, logs, tokens, payloads).</li>
+          <li><span class="em">Immediate value:</span> paste → scan → actionable reasons + steps.</li>
+          <li><span class="em">Signals:</span> phishing-style URLs, SQL/XSS/CMD/LFI patterns, obfuscation.</li>
+          <li><span class="em">Export:</span> JSON report for tickets / notes / SOC handoff.</li>
+          <li><span class="em">No network:</span> no uploads, no API calls, no tracking scripts.</li>
+        </ul>
+      </div>
+    </dialog>
   </div>
 
-  <!-- IMPORTANT: cache-bust -->
-  <script src="/app.js?v=2026-01-03_14-00" defer></script>
+  <script src="app.js" defer></script>
 </body>
 </html>
