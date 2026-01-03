@@ -1,4 +1,4 @@
-<!-- index.html -->
+<!-- index.html (REPLACE FULL FILE) -->
 <!doctype html>
 <html lang="en" dir="ltr">
 <head>
@@ -6,13 +6,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Validoon — Local Decision Engine</title>
 
-  <!-- Keep it local-only -->
+  <!-- Local-only CSP -->
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'">
 
-  <meta name="description" content="Validoon — local-only decision engine to triage pasted inputs. ALLOW / WARN / BLOCK. No uploads. No network calls." />
   <meta name="referrer" content="no-referrer" />
-
   <link rel="stylesheet" href="./style.css" />
 </head>
 
@@ -28,7 +26,7 @@
       </div>
 
       <div class="topActions">
-        <button id="btnInfo" class="btn btn-ghost" type="button" aria-haspopup="dialog" aria-controls="infoModal">Info</button>
+        <button id="btnInfo" class="btn btn-ghost" type="button">Info</button>
         <button id="btnClear" class="btn btn-danger" type="button">Clear</button>
       </div>
     </header>
@@ -52,17 +50,9 @@
         </div>
 
         <div class="cardFooter">
-          <button id="btnRun" class="btn btn-primary" type="button">
-            Execute Scan
-          </button>
-
-          <button id="btnExport" class="btn btn-ghost" type="button">
-            Export JSON
-          </button>
-
-          <div class="hint">
-            Tip: Use Test A/B to validate end-to-end on any device/network.
-          </div>
+          <button id="btnRun" class="btn btn-primary" type="button">Execute Scan</button>
+          <button id="btnExport" class="btn btn-ghost" type="button">Export JSON</button>
+          <div class="hint">Tip: Use Test A/B to validate end-to-end.</div>
         </div>
       </section>
 
@@ -129,7 +119,7 @@
         <div class="cardHeader">
           <div>
             <h2>Per-line Findings</h2>
-            <p class="sub">Each input line gets an independent decision.</p>
+            <p class="sub">Each line gets an independent decision.</p>
           </div>
         </div>
 
@@ -153,9 +143,7 @@
           </table>
         </div>
 
-        <div class="footerNote">
-          Local-only counters (no identity, no network, no tracking). Reset with Clear.
-        </div>
+        <div class="footerNote">Local-only. No identity, no network, no tracking.</div>
       </section>
     </main>
 
@@ -165,11 +153,11 @@
   </div>
 
   <!-- INFO MODAL -->
-  <div id="infoModal" class="modalBackdrop" role="dialog" aria-modal="true" aria-labelledby="infoTitle" aria-hidden="true">
+  <div id="infoModal" class="modalBackdrop" role="dialog" aria-modal="true" aria-hidden="true">
     <div class="modal">
       <div class="modalHeader">
         <div>
-          <div id="infoTitle" class="modalTitle">Validoon — Info</div>
+          <div class="modalTitle">Validoon — Info</div>
           <div class="modalSub">Privacy-first, local-only. No uploads.</div>
         </div>
         <button id="btnInfoCloseX" class="iconBtn" type="button" aria-label="Close">✕</button>
@@ -177,11 +165,11 @@
 
       <div class="modalBody">
         <ul class="bullets">
-          <li><b>Local-only</b>: analysis runs entirely in your browser.</li>
+          <li><b>Local-only</b>: runs entirely in your browser.</li>
           <li><b>No uploads</b>, no accounts, no tracking.</li>
-          <li><b>Immediate value</b>: paste → scan → actionable reasons + steps.</li>
-          <li><b>Signals</b>: phishing-style URLs, SQL/XSS/CMD/LFI patterns, obfuscation, redirects, punycode.</li>
-          <li><b>Export</b>: JSON report for tickets / notes / SOC handoff.</li>
+          <li><b>Paste → scan</b>: actionable reasons + steps.</li>
+          <li><b>Signals</b>: phishing URLs, SQL/XSS/CMD/LFI, obfuscation, redirects, punycode.</li>
+          <li><b>Export</b>: JSON report for tickets / SOC.</li>
         </ul>
       </div>
 
