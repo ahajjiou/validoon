@@ -12,7 +12,9 @@
       "redirect","redirect_uri","redirecturl","return","returnto",
       "continue","next","url","dest","destination","target"
     ]),
-    storageKey: "validoon:lastScan:v1"
+    storage: {
+      keyLastInput: "validoon:lastInput:v1"
+    }
   };
 
   // ---------------- UTIL ----------------
@@ -47,30 +49,6 @@
     return Number(H.toFixed(2));
   }
 
-  function safeSetStorage(key, valueObj){
-    try{
-      localStorage.setItem(key, JSON.stringify(valueObj));
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  function safeGetStorage(key){
-    try{
-      const raw = localStorage.getItem(key);
-      if (!raw) return null;
-      return JSON.parse(raw);
-    } catch {
-      return null;
-    }
-  }
-
-  function safeRemoveStorage(key){
-    try{ localStorage.removeItem(key); } catch {}
-  }
-
-  // Base64 decode (safe heuristic)
   function tryB64Decode(s){
     const cur = safeTrim(s);
     if (!cur || cur.length < 24) return null;
@@ -139,21 +117,17 @@
     const layers = [];
     if (!cur) return { decoded:"", layers };
 
-    // NFKC
     try{
       const n0 = cur.normalize("NFKC");
       if (n0 !== cur){ cur = n0; layers.push("UNICODE_NFKC"); }
     } catch {}
 
-    // URL decode
     const u = tryUrlDecode(cur);
     if (u){ cur = u; layers.push("URL_DECODE"); }
 
-    // Base64 decode
     const b = tryB64Decode(cur);
     if (b){ cur = b; layers.push("BASE64_DECODE"); }
 
-    // NFKC again
     try{
       const n1 = cur.normalize("NFKC");
       if (n1 !== cur){ cur = n1; layers.push("UNICODE_NFKC_POST"); }
@@ -164,7 +138,6 @@
 
   function urlIntel(urlStr, sigs, reasons, scoreRef){
     let score = scoreRef.value;
-
     try{
       const u = new URL(urlStr);
       const host = u.hostname || "";
@@ -175,13 +148,11 @@
         reasons.add("URL uses HTTP (unencrypted).");
       }
 
-      // Homograph / punycode / non-ascii host
       if (/[^\u0000-\u007F]/.test(host) || /xn--/i.test(host)){
         score += 40; sigs.add("HOMOGRAPH_RISK");
         reasons.add("Suspicious host (non-ASCII or punycode) indicates homograph/phishing risk.");
       }
 
-      // Redirect params
       for (const k of u.searchParams.keys()){
         const key = (k || "").toLowerCase();
         if (CONFIG.redirectKeys.has(key)){
@@ -191,18 +162,15 @@
         }
       }
 
-      // Auth endpoints
       if (/(^|\/)(login|signin|sign-in|auth|oauth|sso)(\/|$)/i.test(path)){
         score += 12; sigs.add("AUTH_ENDPOINT");
         reasons.add("Authentication-related endpoint detected.");
       }
 
-      // IP host
       if (RX.ipv4.test(host)){
         score += 22; sigs.add("IP_HOST");
         reasons.add("URL host is an IP address (phishing risk).");
       }
-
     } catch {
       score = Math.max(score, 25);
       sigs.add("MALFORMED_URL");
@@ -235,12 +203,10 @@
 
     applyRules(decoded, sigs, reasons, scoreRef);
 
-    // URL intelligence
     if (RX.url.test(decoded)){
       urlIntel(decoded, sigs, reasons, scoreRef);
     }
 
-    // Entropy / obfuscation
     const ent = entropyNumber(decoded);
     if (decoded.length >= CONFIG.entropy.minLength && ent >= CONFIG.entropy.high){
       scoreRef.value = Math.max(scoreRef.value, CONFIG.entropy.score);
@@ -255,7 +221,6 @@
     const confRaw = CONFIG.confidence.base + (score * CONFIG.confidence.scoreW) + (sigCount * CONFIG.confidence.sigW);
     const confidence = Math.round(clamp(confRaw, 0, CONFIG.confidence.max));
 
-    // Actions
     if (decision === "BLOCK"){
       actions.add("Block this input in the pipeline.");
       actions.add("Inspect logs for related activity and source.");
@@ -271,7 +236,6 @@
       actions.add("No immediate threat detected. Routine monitoring only.");
     }
 
-    // Type
     let type = "Data";
     if (RX.logLine.test(decoded)) type = "Log";
     if (RX.url.test(decoded)) type = "URL";
@@ -289,6 +253,21 @@
       reasons: [...reasons].slice(0, 10),
       actions: [...actions]
     };
+  }
+
+  // ---------------- STORAGE (Step 4) ----------------
+  function saveLastInput(){
+    try{
+      const v = safeTrim($("input")?.value);
+      if (v) localStorage.setItem(CONFIG.storage.keyLastInput, v);
+    } catch {}
+  }
+
+  function restoreLastInput(){
+    try{
+      const v = localStorage.getItem(CONFIG.storage.keyLastInput);
+      if (v && $("input")) $("input").value = v;
+    } catch {}
   }
 
   // ---------------- UI ----------------
@@ -312,9 +291,9 @@
     }
   }
 
-  function resetUI({ clearInput = true } = {}){
+  function resetUI(){
     const input = $("input");
-    if (input && clearInput) input.value = "";
+    if (input) input.value = "";
 
     const verdictEl = $("verdict");
     verdictEl.textContent = "---";
@@ -380,7 +359,6 @@
 
     setVerdictUI(peakScore, peakConf);
 
-    // Signals
     [...allSigs].slice(0, 30).forEach(s => {
       const ch = document.createElement("span");
       ch.className = "chip";
@@ -388,14 +366,12 @@
       $("signals").appendChild(ch);
     });
 
-    // Reasons
     [...allReasons].slice(0, 6).forEach(r => {
       const li = document.createElement("li");
       li.textContent = r;
       $("reasons").appendChild(li);
     });
 
-    // Actions
     if (!allActions.size) allActions.add("No immediate action required.");
     [...allActions].slice(0, 8).forEach(a => {
       const li = document.createElement("li");
@@ -404,56 +380,21 @@
     });
   }
 
-  // ---------------- Step 4: Retention ----------------
-  function saveLastScan(inputText){
-    const payload = {
-      ts: Date.now(),
-      input: inputText
-    };
-    safeSetStorage(CONFIG.storageKey, payload);
-  }
-
-  function loadLastScan(){
-    const saved = safeGetStorage(CONFIG.storageKey);
-    if (!saved || !saved.input) return false;
-
-    const inputEl = $("input");
-    if (!inputEl) return false;
-
-    inputEl.value = String(saved.input);
-
-    // Re-run deterministically from stored input (no need to store results)
-    runScan({ persist: false });
-
-    return true;
-  }
-
-  function clearForNewInput(){
-    // Clear UI + input + remove stored scan so it doesn't auto-restore
-    resetUI({ clearInput: true });
-    safeRemoveStorage(CONFIG.storageKey);
-    const inputEl = $("input");
-    if (inputEl) inputEl.focus();
-  }
-
-  // ---------------- Actions ----------------
-  function runScan({ persist = true } = {}){
+  function runScan(){
     const raw = safeTrim($("input").value);
     if (!raw){
-      resetUI({ clearInput: false });
-      if (persist) safeRemoveStorage(CONFIG.storageKey);
+      resetUI();
       return;
     }
 
     let lines = raw.split("\n").map(s => safeTrim(s)).filter(Boolean);
-    if (lines.length > CONFIG.maxLines){
-      lines = lines.slice(0, CONFIG.maxLines);
-    }
+    if (lines.length > CONFIG.maxLines) lines = lines.slice(0, CONFIG.maxLines);
 
     const results = lines.map(analyzeLine);
     renderScan(results);
 
-    if (persist) saveLastScan(raw);
+    // Step 4 retention
+    saveLastInput();
   }
 
   function exportJSON(){
@@ -501,38 +442,45 @@ Ym9sdC5uZXQvc2VjdXJpdHk=`;
 Normal entry: user_id=42 action=view_report`;
   }
 
+  // ---------------- STEP 4 UI BUTTON ----------------
+  function testAnotherInput(){
+    // Keep lastInput saved (Retention), only reset the screen for a new run
+    resetUI();
+    const inp = $("input");
+    if (inp){
+      inp.focus();
+    }
+  }
+
   // ---------------- WIRE EVENTS ----------------
   function bind(){
-    const mustHave = ["btnRun","btnClear","btnTestA","btnTestB","btnExport","btnAnother","input"];
-    for (const id of mustHave){
+    // Required elements (if any missing, scanning can’t work)
+    const required = ["btnRun","btnClear","btnTestA","btnTestB","btnExport","input","verdict","riskVal","confVal","signals","reasons","actions","tableBody"];
+    for (const id of required){
       if (!$(id)){
-        console.error(`Validoon: missing element #${id}`);
+        console.error(`Validoon: missing required element #${id}`);
         return;
       }
     }
 
-    $("btnRun").addEventListener("click", () => runScan({ persist: true }));
-
-    $("btnClear").addEventListener("click", () => {
-      resetUI({ clearInput: true });
-      safeRemoveStorage(CONFIG.storageKey);
-    });
-
-    $("btnTestA").addEventListener("click", () => { loadTestA(); runScan({ persist: true }); });
-    $("btnTestB").addEventListener("click", () => { loadTestB(); runScan({ persist: true }); });
-
+    $("btnRun").addEventListener("click", runScan);
+    $("btnClear").addEventListener("click", resetUI);
+    $("btnTestA").addEventListener("click", () => { loadTestA(); runScan(); });
+    $("btnTestB").addEventListener("click", () => { loadTestB(); runScan(); });
     $("btnExport").addEventListener("click", exportJSON);
 
-    // Step 4 button
-    $("btnAnother").addEventListener("click", clearForNewInput);
+    // Optional: Step 4 button (should exist now)
+    const btnAnother = $("btnAnother");
+    if (btnAnother){
+      btnAnother.addEventListener("click", testAnotherInput);
+    }
 
-    // Optional: Ctrl/Cmd+Enter to run
     $("input").addEventListener("keydown", (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") runScan({ persist: true });
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") runScan();
     });
 
-    // Step 4: auto-restore last scan
-    loadLastScan();
+    // Restore last input (Retention)
+    restoreLastInput();
   }
 
   document.addEventListener("DOMContentLoaded", bind);
