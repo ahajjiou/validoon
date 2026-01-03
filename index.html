@@ -4,16 +4,14 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Validoon</title>
-  <meta name="description" content="Validoon - local decision engine to triage inputs." />
-  <meta name="referrer" content="no-referrer" />
 
-  <link rel="stylesheet" href="./style.css?v=6" />
-  <script src="./app.js?v=6" defer></script>
+  <!-- CSS -->
+  <link rel="stylesheet" href="./style.css" />
+
 </head>
-
 <body>
-  <div class="app">
-    <header class="top">
+  <div class="container">
+    <header class="topbar">
       <div class="brand">
         <div class="logo">V</div>
         <div class="brandText">
@@ -23,116 +21,98 @@
       </div>
 
       <div class="topActions">
-        <button id="btnInfo" class="btn ghost" type="button">Info</button>
-        <button id="btnClear" class="btn danger" type="button">Clear</button>
+        <button id="btnInfo" class="btn ghost">Info</button>
+        <button id="btnClear" class="btn danger">Clear</button>
       </div>
     </header>
 
     <main class="grid">
-      <!-- LEFT: INPUT -->
+      <!-- LEFT -->
       <section class="card">
         <div class="cardHead">
-          <div>
-            <div class="title">Input Stream</div>
-            <div class="muted">One item per line (URLs, logs, SQL, base64, suspicious strings).</div>
-          </div>
-          <div class="right">
-            <button id="btnLoadA" class="btn" type="button">Load Test A</button>
-            <button id="btnLoadB" class="btn" type="button">Load Test B</button>
-          </div>
+          <h3>Input Stream</h3>
+          <div class="cardHint">One item per line (URLs, logs, SQL, base64, suspicious strings).</div>
         </div>
 
-        <textarea id="txtInput" class="textarea" spellcheck="false" placeholder="Paste one item per line..."></textarea>
+        <textarea id="inputStream" spellcheck="false" placeholder="Paste input here..."></textarea>
 
-        <div class="row">
-          <button id="btnRun" class="btn primary" type="button">Execute Scan</button>
-          <button id="btnExport" class="btn" type="button">Export JSON</button>
-          <div class="hint">Tip: use Test A/B to validate end-to-end.</div>
+        <div class="actions">
+          <button id="btnExecute" class="btn primary">Execute Scan</button>
+          <button id="btnExport" class="btn">Export JSON</button>
+          <button id="btnLoadA" class="btn">Load Test A</button>
+          <button id="btnLoadB" class="btn">Load Test B</button>
+        </div>
+
+        <div class="tip">
+          Tip: use Test A/B to validate end-to-end on any device/network.
         </div>
       </section>
 
-      <!-- RIGHT: VERDICT -->
+      <!-- RIGHT -->
       <section class="card">
         <div class="cardHead">
-          <div>
-            <div class="title">System Verdict</div>
-            <div id="verdictSub" class="muted">Instant local scoring — no network calls.</div>
+          <h3>System Verdict</h3>
+          <div class="cardHint">Instant local scoring — no network calls.</div>
+        </div>
+
+        <div id="verdictBox" class="verdict secure">SECURE</div>
+
+        <div class="kpis">
+          <div class="kpi">
+            <div class="kpiLabel">Peak severity</div>
+            <div id="peakSeverity" class="kpiValue">0%</div>
+          </div>
+          <div class="kpi">
+            <div class="kpiLabel">Confidence</div>
+            <div id="confidence" class="kpiValue">0%</div>
           </div>
         </div>
 
-        <div class="verdictBox" id="verdictBox">
-          <div class="verdictTop">
-            <div class="verdictLabel" id="verdictLabel">—</div>
-            <div class="kpis">
-              <div class="kpi">
-                <div class="kpiName">Peak severity</div>
-                <div class="kpiVal" id="kpiSeverity">0%</div>
-              </div>
-              <div class="kpi">
-                <div class="kpiName">Confidence</div>
-                <div class="kpiVal" id="kpiConfidence">0%</div>
-              </div>
-            </div>
-          </div>
+        <div class="badgesWrap">
+          <div class="sectionTitle">Signals</div>
+          <div id="signals" class="badges"></div>
+        </div>
 
-          <div class="chips" id="chips"></div>
-
-          <div class="cols">
-            <div class="col">
-              <div class="subTitle">Primary reasons</div>
-              <ul id="reasons" class="list"></ul>
-            </div>
-            <div class="col">
-              <div class="subTitle">Remediation steps</div>
-              <ul id="steps" class="list"></ul>
-            </div>
-          </div>
-
+        <div class="miniGrid">
           <div class="mini">
-            <div class="miniBox">
-              <div class="miniName">Scans</div>
-              <div class="miniVal" id="miniScans">0</div>
-            </div>
-            <div class="miniBox">
-              <div class="miniName ok">Allow</div>
-              <div class="miniVal" id="miniAllow">0</div>
-            </div>
-            <div class="miniBox">
-              <div class="miniName warn">Warn</div>
-              <div class="miniVal" id="miniWarn">0</div>
-            </div>
-            <div class="miniBox">
-              <div class="miniName bad">Block</div>
-              <div class="miniVal" id="miniBlock">0</div>
-            </div>
+            <div class="miniLabel">Scans</div>
+            <div id="countScans" class="miniValue">0</div>
+          </div>
+          <div class="mini">
+            <div class="miniLabel">Allow</div>
+            <div id="countAllow" class="miniValue green">0</div>
+          </div>
+          <div class="mini">
+            <div class="miniLabel">Warn</div>
+            <div id="countWarn" class="miniValue yellow">0</div>
+          </div>
+          <div class="mini">
+            <div class="miniLabel">Block</div>
+            <div id="countBlock" class="miniValue red">0</div>
           </div>
         </div>
       </section>
 
-      <!-- BOTTOM: PER-LINE -->
-      <section class="card span2">
+      <!-- BOTTOM FULL WIDTH -->
+      <section class="card full">
         <div class="cardHead">
-          <div>
-            <div class="title">Per-line Findings</div>
-            <div class="muted">Each input line gets an independent decision.</div>
-          </div>
+          <h3>Per-line Findings</h3>
+          <div class="cardHint">Each input line gets an independent decision.</div>
         </div>
 
         <div class="tableWrap">
-          <table class="table">
+          <table>
             <thead>
               <tr>
-                <th style="width:52%">Segment</th>
-                <th style="width:10%">Type</th>
-                <th style="width:10%">Decision</th>
-                <th style="width:10%">Severity</th>
-                <th style="width:10%">Confidence</th>
-                <th style="width:8%">Entropy</th>
+                <th>Item</th>
+                <th>Type</th>
+                <th>Decision</th>
+                <th>Severity</th>
+                <th>Confidence</th>
+                <th>Entropy</th>
               </tr>
             </thead>
-            <tbody id="tblBody">
-              <tr><td colspan="6" class="empty">No results yet.</td></tr>
-            </tbody>
+            <tbody id="findingsBody"></tbody>
           </table>
         </div>
       </section>
@@ -140,26 +120,26 @@
   </div>
 
   <!-- INFO MODAL -->
-  <div id="modal" class="modal" aria-hidden="true">
-    <div class="modalBackdrop" id="modalBackdrop"></div>
-    <div class="modalCard" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-      <div class="modalHead">
-        <div>
-          <div id="modalTitle" class="modalTitle">Validoon — Info</div>
-          <div class="muted">Privacy-first, local-only. No uploads.</div>
-        </div>
-        <button id="btnCloseModal" class="btn ghost" type="button">Close</button>
-      </div>
-
-      <div class="modalBody">
-        <ul class="list">
-          <li><b>Immediate value:</b> paste → scan → actionable reasons + steps.</li>
-          <li><b>Signals:</b> phishing-style URLs, SQL/XSS/CMD/LFI patterns, obfuscation.</li>
-          <li><b>Export:</b> JSON report for tickets / notes / SOC handoff.</li>
-          <li><b>Advanced analysis:</b> planned (no network calls will be added without explicit opt-in).</li>
-        </ul>
+  <div id="infoModal" class="modal" aria-hidden="true">
+    <div class="modal-box" role="dialog" aria-modal="true" aria-label="Validoon Info">
+      <h2>Validoon — Info</h2>
+      <p>
+        Privacy-first, local-only decision engine that triages pasted inputs (URLs, logs, tokens, payloads) and returns
+        a clear verdict in seconds: <b>ALLOW / WARN / BLOCK</b>. No uploads. No accounts. Runs entirely in your browser.
+      </p>
+      <ul>
+        <li>Immediate value: paste → scan → actionable reasons + steps</li>
+        <li>Signals: phishing-style URLs, SQL/XSS/CMD/LFI patterns, obfuscation</li>
+        <li>Export JSON report for tickets / notes / SOC handoff</li>
+        <li>Advanced analysis can be added later (still local)</li>
+      </ul>
+      <div class="actions right">
+        <button id="closeInfo" class="btn primary">Close</button>
       </div>
     </div>
   </div>
+
+  <!-- JS -->
+  <script src="./app.js"></script>
 </body>
 </html>
