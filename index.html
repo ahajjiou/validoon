@@ -1,39 +1,182 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en" dir="ltr">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Validoon</title>
 
-  <meta name="description" content="Validoon – local decision engine to triage inputs, detect risks, and return clear verdicts." />
-  <meta name="referrer" content="no-referrer" />
+  <!-- Keep CSS external -->
+  <link rel="stylesheet" href="./style.css" />
 
-  <!-- ✅ Content Security Policy (SAFE + buttons work) -->
+  <!-- (Optional) basic CSP - note: frame-ancestors won't work via meta -->
   <meta http-equiv="Content-Security-Policy"
-        content="
-          default-src 'self';
-          script-src 'self';
-          style-src 'self';
-          img-src 'self' data:;
-          font-src 'self';
-          connect-src 'self';
-          frame-ancestors 'none';
-        ">
-
-  <!-- ✅ External CSS (CONFIRMED) -->
-  <link rel="stylesheet" href="/style.css?v=3" />
-
+        content="default-src 'self';
+                 script-src 'self';
+                 style-src 'self';
+                 img-src 'self' data:;
+                 connect-src 'self';
+                 object-src 'none';
+                 base-uri 'self'">
 </head>
 
 <body>
+  <!-- App root -->
+  <div id="app" class="app-shell">
 
-  <div id="app">
-    <!-- UI is rendered by JS -->
+    <!-- Header / Right panel (info) -->
+    <aside class="panel panel--info" id="panelInfo">
+      <div class="brand">
+        <div class="brand__title">Validoon</div>
+        <div class="brand__sub">
+          A privacy-first, local decision engine that triages pasted input (URLs, logs, tokens, payloads) and returns a clear verdict in seconds.
+        </div>
+      </div>
+
+      <ul class="bullets">
+        <li>No accounts. Runs entirely in your browser.</li>
+        <li>Immediate value: paste → scan → actionable reasons + remediation steps.</li>
+        <li>Built for real work: detects phishing-style URL risks, SQLi/XSS/CMD/LFI patterns, and obfuscation signals.</li>
+        <li>Exportable JSON report for incident notes, tickets, or SOC handoff.</li>
+      </ul>
+    </aside>
+
+    <!-- Main content -->
+    <main class="panel panel--main">
+      <div class="grid">
+
+        <!-- Input box -->
+        <section class="card card--input">
+          <div class="card__head">
+            <div class="card__title">INPUT STREAM (ONE ITEM PER LINE)</div>
+            <div class="card__hint">Paste one item per line: URLs, SQL, logs, base64, suspicious strings…</div>
+          </div>
+
+          <textarea id="inputText" class="textarea" spellcheck="false"
+            placeholder="https://example.com/
+normal entry: user_id=42 action=view_report
+SELECT * FROM users WHERE id='1' OR 1=1;
+..."></textarea>
+
+          <div class="actions">
+            <button id="btnRun" class="btn btn--primary" type="button">Execute Scan</button>
+            <button id="btnExport" class="btn" type="button">Export JSON</button>
+            <button id="btnLoadA" class="btn" type="button">Load Test A (Web Threats)</button>
+            <button id="btnLoadB" class="btn" type="button">Load Test B (Mixed Logs)</button>
+            <button id="btnTestAnother" class="btn" type="button">Test another input</button>
+            <button id="btnClear" class="btn btn--danger" type="button">Clear</button>
+          </div>
+
+          <div class="footnote" id="tipText">
+            Tip: use Test A/B to validate that everything works end-to-end on any device/network.
+          </div>
+        </section>
+
+        <!-- Verdict -->
+        <section class="card card--verdict">
+          <div class="card__head">
+            <div class="card__title">SYSTEM VERDICT</div>
+          </div>
+
+          <div id="verdictBadge" class="verdict verdict--neutral">—</div>
+
+          <div class="metrics">
+            <div class="metric">
+              <div class="metric__label">PEAK SEVERITY</div>
+              <div id="peakSeverity" class="metric__value">0%</div>
+            </div>
+            <div class="metric">
+              <div class="metric__label">CONFIDENCE</div>
+              <div id="confidence" class="metric__value">0%</div>
+            </div>
+          </div>
+
+          <div id="advancedMsg" class="advanced">
+            Advanced analysis coming soon
+          </div>
+
+          <div class="counters">
+            <div class="counter">
+              <div class="counter__label">SCANS</div>
+              <div id="countScans" class="counter__value">0</div>
+            </div>
+            <div class="counter">
+              <div class="counter__label">ALLOW</div>
+              <div id="countAllow" class="counter__value">0</div>
+            </div>
+            <div class="counter">
+              <div class="counter__label">WARN</div>
+              <div id="countWarn" class="counter__value">0</div>
+            </div>
+            <div class="counter">
+              <div class="counter__label">BLOCK</div>
+              <div id="countBlock" class="counter__value">0</div>
+            </div>
+          </div>
+
+          <div class="smallnote" id="localOnlyNote">
+            Local-only counters (no identity, no network, no tracking). Reset with Clear.
+          </div>
+        </section>
+
+        <!-- Findings table -->
+        <section class="card card--table">
+          <div class="card__head">
+            <div class="card__title">PER-LINE FINDINGS</div>
+          </div>
+
+          <div class="tableWrap">
+            <table class="table" id="findingsTable">
+              <thead>
+                <tr>
+                  <th>SEGMENT</th>
+                  <th>TYPE</th>
+                  <th>DECISION</th>
+                  <th>SEVERITY</th>
+                  <th>CONFIDENCE</th>
+                  <th>ENTROPY</th>
+                </tr>
+              </thead>
+              <tbody id="findingsBody">
+                <!-- filled by app.js -->
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Reasons / Remediation -->
+        <section class="card card--lists">
+          <div class="split">
+            <div class="split__col">
+              <div class="listTitle">ACTIVE SIGNALS</div>
+              <div id="activeSignals" class="chips">
+                <!-- chips injected by app.js -->
+              </div>
+
+              <div class="listTitle">PRIMARY REASONS</div>
+              <ul id="primaryReasons" class="list">
+                <!-- injected by app.js -->
+              </ul>
+            </div>
+
+            <div class="split__col">
+              <div class="listTitle">REMEDIATION STEPS</div>
+              <ul id="remediationSteps" class="list">
+                <!-- injected by app.js -->
+              </ul>
+
+              <div class="coming" id="comingSoon">
+                Advanced analysis coming soon.
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+
   </div>
 
-  <!-- ✅ Main JS -->
-  <script src="/app.js?v=3" defer></script>
-
+  <!-- JS (defer guarantees DOM exists before app.js binds) -->
+  <script src="./app.js" defer></script>
 </body>
 </html>
