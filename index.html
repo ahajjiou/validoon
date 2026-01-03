@@ -6,11 +6,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Validoon</title>
 
-  <!-- Basic SEO -->
   <meta name="description" content="Validoon — local decision engine to triage inputs, detect risk signals, and decide ALLOW / WARN / BLOCK in seconds." />
   <meta name="referrer" content="no-referrer" />
 
-  <!-- Security headers (static-friendly) -->
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'; upgrade-insecure-requests" />
 
@@ -58,7 +56,6 @@
       background:radial-gradient(650px 220px at 15% 10%, rgba(124,140,255,.16), transparent 60%),
                  radial-gradient(520px 220px at 85% 25%, rgba(61,214,255,.10), transparent 60%);
       pointer-events:none;
-      filter:blur(.2px);
     }
     .top > *{ position:relative; z-index:1; }
 
@@ -183,10 +180,8 @@
     .t-bad{ color:var(--bad); background:rgba(255,92,122,.10); border-color:rgba(255,92,122,.25); }
 
     .small{ color:var(--muted); font-size:12px; margin-top:8px; line-height:1.5; }
-
     .divider{ height:1px; background:rgba(30,42,89,.95); margin:12px 0; }
 
-    /* Step 5: visible, non-invasive */
     .coming-soon{
       margin-top:12px;
       padding:9px 12px;
@@ -201,6 +196,44 @@
       box-shadow:
         inset 0 1px 0 rgba(255,255,255,.06),
         0 10px 26px rgba(124,140,255,.10);
+    }
+
+    /* Step 6: local analytics */
+    .stats{
+      margin-top:10px;
+      padding:10px 12px;
+      border-radius:16px;
+      border:1px solid rgba(30,42,89,.95);
+      background:rgba(255,255,255,.02);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
+    }
+    .statsRow{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+      justify-content:space-between;
+    }
+    .stat{
+      min-width:120px;
+    }
+    .stat .k{
+      font-size:11px;
+      color:var(--muted);
+      letter-spacing:1px;
+      text-transform:uppercase;
+    }
+    .stat .n{
+      font-size:18px;
+      font-weight:950;
+      margin-top:2px;
+      letter-spacing:-.2px;
+    }
+    .privacyNote{
+      margin-top:8px;
+      font-size:11.5px;
+      color:var(--muted);
+      line-height:1.4;
     }
   </style>
 </head>
@@ -230,10 +263,7 @@
           <button id="btnTestA" class="secondary" type="button">Load Test A (Web Threats)</button>
           <button id="btnTestB" class="secondary" type="button">Load Test B (Mixed Logs)</button>
           <button id="btnExport" class="secondary" type="button">Export JSON</button>
-
-          <!-- Step 4: retention -->
           <button id="btnAnother" class="secondary" type="button">Test another input</button>
-
           <button id="btnClear" class="danger" type="button">Clear</button>
         </div>
 
@@ -257,8 +287,32 @@
           </div>
         </div>
 
-        <!-- Step 5 -->
         <div class="coming-soon">Advanced analysis coming soon</div>
+
+        <!-- Step 6 UI -->
+        <div class="stats">
+          <div class="statsRow">
+            <div class="stat">
+              <div class="k">Scans</div>
+              <div id="statScans" class="n">0</div>
+            </div>
+            <div class="stat">
+              <div class="k">Allow</div>
+              <div id="statAllow" class="n">0</div>
+            </div>
+            <div class="stat">
+              <div class="k">Warn</div>
+              <div id="statWarn" class="n">0</div>
+            </div>
+            <div class="stat">
+              <div class="k">Block</div>
+              <div id="statBlock" class="n">0</div>
+            </div>
+          </div>
+          <div class="privacyNote">
+            Local-only counters (no identity, no network, no tracking). Reset with Clear.
+          </div>
+        </div>
 
         <div class="divider"></div>
 
