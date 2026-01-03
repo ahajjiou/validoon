@@ -1,4 +1,4 @@
-// app.js  (Step 3 added: "Why this decision?" + "What should I do next?" as ONE line each)
+// app.js
 (() => {
   "use strict";
 
@@ -11,7 +11,8 @@
     redirectKeys: new Set([
       "redirect","redirect_uri","redirecturl","return","returnto",
       "continue","next","url","dest","destination","target"
-    ])
+    ]),
+    storageKey: "validoon:lastScan:v1"
   };
 
   // ---------------- UTIL ----------------
@@ -44,6 +45,29 @@
       H -= p * Math.log2(p);
     }
     return Number(H.toFixed(2));
+  }
+
+  function safeSetStorage(key, valueObj){
+    try{
+      localStorage.setItem(key, JSON.stringify(valueObj));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function safeGetStorage(key){
+    try{
+      const raw = localStorage.getItem(key);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  function safeRemoveStorage(key){
+    try{ localStorage.removeItem(key); } catch {}
   }
 
   // Base64 decode (safe heuristic)
@@ -231,7 +255,7 @@
     const confRaw = CONFIG.confidence.base + (score * CONFIG.confidence.scoreW) + (sigCount * CONFIG.confidence.sigW);
     const confidence = Math.round(clamp(confRaw, 0, CONFIG.confidence.max));
 
-    // Actions (kept as-is internally; Step 3 will show ONE action only)
+    // Actions
     if (decision === "BLOCK"){
       actions.add("Block this input in the pipeline.");
       actions.add("Inspect logs for related activity and source.");
@@ -267,74 +291,6 @@
     };
   }
 
-  // ---------------- STEP 3 (TRUST LINES) ----------------
-  function verdictFromPeakScore(peakScore){
-    if (peakScore >= CONFIG.thresholds.block) return "DANGER";
-    if (peakScore >= CONFIG.thresholds.warn) return "SUSPICIOUS";
-    return "SECURE";
-  }
-
-  function extractTopFamilies(allSigs){
-    const fam = new Set();
-    for (const s of allSigs){
-      if (s.startsWith("SQLI:")) fam.add("SQLi");
-      else if (s.startsWith("XSS:")) fam.add("XSS");
-      else if (s.startsWith("CMDI:")) fam.add("CMDi");
-      else if (s.startsWith("LFI:")) fam.add("LFI");
-      else if (s === "HOMOGRAPH_RISK") fam.add("Homograph");
-      else if (s === "REDIRECT_PARAM") fam.add("Open-Redirect");
-      else if (s === "INSECURE_HTTP") fam.add("HTTP");
-      else if (s === "IP_HOST") fam.add("IP-Host");
-      else if (s === "HIGH_ENTROPY") fam.add("Obfuscation");
-      else if (s === "BASE64_DECODE" || s === "URL_DECODE") fam.add("Decoding");
-    }
-    return [...fam].slice(0, 4);
-  }
-
-  function buildWhyLine(peakScore, allSigs){
-    const verdict = verdictFromPeakScore(peakScore);
-    const fams = extractTopFamilies(allSigs);
-
-    if (verdict === "DANGER"){
-      const famText = fams.length ? ` (${fams.join(", ")})` : "";
-      return `Why this decision? High-confidence exploit indicators were detected${famText}, so the input should be treated as malicious.`;
-    }
-    if (verdict === "SUSPICIOUS"){
-      const famText = fams.length ? ` (${fams.join(", ")})` : "";
-      return `Why this decision? Risky patterns were detected${famText}, but not enough to confirm a full exploit with maximum certainty.`;
-    }
-    return "Why this decision? No exploit patterns or high-risk URL signals were detected in the provided input.";
-  }
-
-  function pickNextAction(peakScore, allSigs){
-    const verdict = verdictFromPeakScore(peakScore);
-
-    if (verdict === "DANGER"){
-      if ([...allSigs].some(s => s.startsWith("SQLI:"))) {
-        return "What should I do next? BLOCK it and investigate the source; enforce parameterized queries and strict server-side validation.";
-      }
-      if ([...allSigs].some(s => s.startsWith("XSS:"))) {
-        return "What should I do next? BLOCK it and investigate the source; apply output encoding and keep a strict CSP.";
-      }
-      if ([...allSigs].some(s => s.startsWith("CMDI:"))) {
-        return "What should I do next? BLOCK it and investigate the source; remove/whitelist any shell execution paths.";
-      }
-      if ([...allSigs].some(s => s.startsWith("LFI:"))) {
-        return "What should I do next? BLOCK it and investigate the source; harden file access and block traversal patterns.";
-      }
-      return "What should I do next? BLOCK it and investigate the source; sanitize/validate server-side before any processing.";
-    }
-
-    if (verdict === "SUSPICIOUS"){
-      if ([...allSigs].some(s => s === "HOMOGRAPH_RISK" || s === "REDIRECT_PARAM" || s === "INSECURE_HTTP" || s === "IP_HOST")){
-        return "What should I do next? Verify the URL/domain carefully and avoid opening it outside an isolated environment.";
-      }
-      return "What should I do next? Verify context and source; proceed only if the input is expected and trusted.";
-    }
-
-    return "What should I do next? Proceed normally and keep routine monitoring.";
-  }
-
   // ---------------- UI ----------------
   function setVerdictUI(peakScore, peakConf){
     const verdictEl = $("verdict");
@@ -356,9 +312,9 @@
     }
   }
 
-  function resetUI(){
+  function resetUI({ clearInput = true } = {}){
     const input = $("input");
-    if (input) input.value = "";
+    if (input && clearInput) input.value = "";
 
     const verdictEl = $("verdict");
     verdictEl.textContent = "---";
@@ -432,24 +388,60 @@
       $("signals").appendChild(ch);
     });
 
-    // ---------------- STEP 3 OUTPUTS (ONE LINE EACH) ----------------
-    // Primary reasons = ONLY one clear "Why this decision?"
-    const whyLine = buildWhyLine(peakScore, allSigs);
-    const liWhy = document.createElement("li");
-    liWhy.textContent = whyLine;
-    $("reasons").appendChild(liWhy);
+    // Reasons
+    [...allReasons].slice(0, 6).forEach(r => {
+      const li = document.createElement("li");
+      li.textContent = r;
+      $("reasons").appendChild(li);
+    });
 
-    // Remediation steps = ONLY one clear next step
-    const nextLine = pickNextAction(peakScore, allSigs);
-    const liNext = document.createElement("li");
-    liNext.textContent = nextLine;
-    $("actions").appendChild(liNext);
+    // Actions
+    if (!allActions.size) allActions.add("No immediate action required.");
+    [...allActions].slice(0, 8).forEach(a => {
+      const li = document.createElement("li");
+      li.textContent = a;
+      $("actions").appendChild(li);
+    });
   }
 
-  function runScan(){
+  // ---------------- Step 4: Retention ----------------
+  function saveLastScan(inputText){
+    const payload = {
+      ts: Date.now(),
+      input: inputText
+    };
+    safeSetStorage(CONFIG.storageKey, payload);
+  }
+
+  function loadLastScan(){
+    const saved = safeGetStorage(CONFIG.storageKey);
+    if (!saved || !saved.input) return false;
+
+    const inputEl = $("input");
+    if (!inputEl) return false;
+
+    inputEl.value = String(saved.input);
+
+    // Re-run deterministically from stored input (no need to store results)
+    runScan({ persist: false });
+
+    return true;
+  }
+
+  function clearForNewInput(){
+    // Clear UI + input + remove stored scan so it doesn't auto-restore
+    resetUI({ clearInput: true });
+    safeRemoveStorage(CONFIG.storageKey);
+    const inputEl = $("input");
+    if (inputEl) inputEl.focus();
+  }
+
+  // ---------------- Actions ----------------
+  function runScan({ persist = true } = {}){
     const raw = safeTrim($("input").value);
     if (!raw){
-      resetUI();
+      resetUI({ clearInput: false });
+      if (persist) safeRemoveStorage(CONFIG.storageKey);
       return;
     }
 
@@ -460,11 +452,14 @@
 
     const results = lines.map(analyzeLine);
     renderScan(results);
+
+    if (persist) saveLastScan(raw);
   }
 
   function exportJSON(){
     const raw = safeTrim($("input").value);
     if (!raw) return;
+
     let lines = raw.split("\n").map(s => safeTrim(s)).filter(Boolean);
     if (!lines.length) return;
     if (lines.length > CONFIG.maxLines) lines = lines.slice(0, CONFIG.maxLines);
@@ -506,9 +501,9 @@ Ym9sdC5uZXQvc2VjdXJpdHk=`;
 Normal entry: user_id=42 action=view_report`;
   }
 
-  // ---------------- WIRE EVENTS (safe) ----------------
+  // ---------------- WIRE EVENTS ----------------
   function bind(){
-    const mustHave = ["btnRun","btnClear","btnTestA","btnTestB","btnExport","input"];
+    const mustHave = ["btnRun","btnClear","btnTestA","btnTestB","btnExport","btnAnother","input"];
     for (const id of mustHave){
       if (!$(id)){
         console.error(`Validoon: missing element #${id}`);
@@ -516,16 +511,28 @@ Normal entry: user_id=42 action=view_report`;
       }
     }
 
-    $("btnRun").addEventListener("click", runScan);
-    $("btnClear").addEventListener("click", resetUI);
-    $("btnTestA").addEventListener("click", () => { loadTestA(); runScan(); });
-    $("btnTestB").addEventListener("click", () => { loadTestB(); runScan(); });
+    $("btnRun").addEventListener("click", () => runScan({ persist: true }));
+
+    $("btnClear").addEventListener("click", () => {
+      resetUI({ clearInput: true });
+      safeRemoveStorage(CONFIG.storageKey);
+    });
+
+    $("btnTestA").addEventListener("click", () => { loadTestA(); runScan({ persist: true }); });
+    $("btnTestB").addEventListener("click", () => { loadTestB(); runScan({ persist: true }); });
+
     $("btnExport").addEventListener("click", exportJSON);
+
+    // Step 4 button
+    $("btnAnother").addEventListener("click", clearForNewInput);
 
     // Optional: Ctrl/Cmd+Enter to run
     $("input").addEventListener("keydown", (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") runScan();
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") runScan({ persist: true });
     });
+
+    // Step 4: auto-restore last scan
+    loadLastScan();
   }
 
   document.addEventListener("DOMContentLoaded", bind);
