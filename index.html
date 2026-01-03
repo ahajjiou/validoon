@@ -1,148 +1,215 @@
+<!-- index.html -->
 <!doctype html>
-<html lang="en" dir="ltr">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Validoon</title>
-  <meta name="description" content="Validoon — local decision engine to triage inputs; detect phishing-style URL risks, SQL/XSS/CMD/LFI patterns, and obfuscation signals." />
-  <meta name="referrer" content="no-referrer" />
+  <meta name="description" content="Validoon - privacy-first local decision engine for input triage (ALLOW / WARN / BLOCK)." />
 
-  <!-- Keep CSS as a separate file (recommended) -->
   <link rel="stylesheet" href="./style.css?v=1" />
-
-  <!-- Load JS (defer ensures DOM exists before binding) -->
-  <script src="./app.js?v=1" defer></script>
+  <script defer src="./app.js?v=1"></script>
 </head>
 
 <body>
-  <div class="app" id="appRoot">
-
-    <header class="topbar">
-      <div class="brand">
-        <div class="brand__title">Validoon</div>
-        <div class="brand__subtitle">Privacy-first local verdict engine • ALLOW / WARN / BLOCK</div>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brandMark" aria-hidden="true"></div>
+      <div class="brandText">
+        <div class="brandName">Validoon</div>
+        <div class="brandTag">Local decision engine — ALLOW / WARN / BLOCK. No uploads.</div>
       </div>
-      <div class="topbar__right">
-        <span class="pill">No uploads</span>
-        <span class="pill">Local-only</span>
-      </div>
-    </header>
+    </div>
 
-    <main class="grid">
+    <div class="topbarActions">
+      <a class="linkPill" href="#" id="btnDocs" title="Quick tips">Tips</a>
+      <a class="linkPill" href="#" id="btnAbout" title="About this demo">About</a>
+      <span class="pill">Local-only</span>
+    </div>
+  </header>
 
-      <!-- Left: Input -->
-      <section class="card card--input">
-        <div class="card__header">
-          <div class="card__title">Input Stream <span class="muted">(one item per line)</span></div>
-          <div class="card__actions">
-            <button class="btn btn--primary" id="btnRun" type="button">Execute Scan</button>
+  <main class="shell">
+    <section class="grid">
+      <!-- LEFT: Input -->
+      <div class="card">
+        <div class="cardHeader">
+          <div class="cardTitle">Input stream</div>
+          <div class="cardSub">One item per line (URLs, logs, SQL, base64, suspicious strings).</div>
+        </div>
+
+        <div class="cardBody">
+          <label class="label" for="txtInput">Paste input</label>
+          <textarea id="txtInput" class="textarea" spellcheck="false"
+            placeholder="https://example.com/
+http://example.com/login?redirect=https://evil.invalid
+SELECT * FROM users WHERE id='1' OR 1=1;
+<script>alert(1)</script>
+../../etc/passwd
+hello world"></textarea>
+
+          <div class="actionsRow">
+            <button class="btn primary" id="btnRun" type="button">Execute scan</button>
             <button class="btn" id="btnExport" type="button">Export JSON</button>
-            <button class="btn" id="btnTestA" type="button">Load Test A</button>
-            <button class="btn" id="btnTestB" type="button">Load Test B</button>
-            <button class="btn btn--danger" id="btnClear" type="button">Clear</button>
-          </div>
-        </div>
-
-        <textarea
-          id="inputStream"
-          class="textarea"
-          placeholder="Paste one item per line: URLs, SQL, logs, base64, suspicious strings…"
-          spellcheck="false"
-        ></textarea>
-
-        <div class="hint">
-          Tip: use Test A/B to validate everything works end-to-end on any device/network.
-        </div>
-      </section>
-
-      <!-- Right: Verdict -->
-      <section class="card card--verdict">
-        <div class="card__header">
-          <div class="card__title">System Verdict</div>
-        </div>
-
-        <div class="verdict">
-          <div class="verdict__big" id="verdictLabel">—</div>
-
-          <div class="kpis">
-            <div class="kpi">
-              <div class="kpi__label">Peak Severity</div>
-              <div class="kpi__value" id="peakSeverity">0%</div>
-            </div>
-            <div class="kpi">
-              <div class="kpi__label">Confidence</div>
-              <div class="kpi__value" id="confidence">0%</div>
-            </div>
+            <button class="btn" id="btnTestA" type="button">Load Test A (Web threats)</button>
+            <button class="btn" id="btnTestB" type="button">Load Test B (Mixed logs)</button>
+            <button class="btn danger" id="btnClear" type="button">Clear</button>
           </div>
 
-          <div class="row">
-            <div class="meter">
-              <div class="meter__label">Scans</div>
-              <div class="meter__value" id="countScans">0</div>
+          <div class="hint">
+            Tip: Use Test A/B to verify the pipeline end-to-end on any device/network.
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Verdict -->
+      <div class="card">
+        <div class="cardHeader">
+          <div class="cardTitle">System verdict</div>
+          <div class="cardSub">Instant local scoring — no network calls.</div>
+        </div>
+
+        <div class="cardBody">
+          <div class="verdict">
+            <div class="verdictMain">
+              <div class="verdictLabel" id="lblVerdict">—</div>
+              <div class="meterRow">
+                <div class="meter">
+                  <div class="meterTitle">Peak severity</div>
+                  <div class="meterValue" id="lblPeakSeverity">0%</div>
+                </div>
+                <div class="meter">
+                  <div class="meterTitle">Confidence</div>
+                  <div class="meterValue" id="lblConfidence">0%</div>
+                </div>
+              </div>
             </div>
-            <div class="meter">
-              <div class="meter__label">Allow</div>
-              <div class="meter__value" id="countAllow">0</div>
+
+            <div class="miniBoard">
+              <div class="mini">
+                <div class="miniTitle">Scans</div>
+                <div class="miniValue" id="lblScans">0</div>
+              </div>
+              <div class="mini">
+                <div class="miniTitle">Allow</div>
+                <div class="miniValue ok" id="lblAllow">0</div>
+              </div>
+              <div class="mini">
+                <div class="miniTitle">Warn</div>
+                <div class="miniValue warn" id="lblWarn">0</div>
+              </div>
+              <div class="mini">
+                <div class="miniTitle">Block</div>
+                <div class="miniValue bad" id="lblBlock">0</div>
+              </div>
             </div>
-            <div class="meter">
-              <div class="meter__label">Warn</div>
-              <div class="meter__value" id="countWarn">0</div>
+
+            <div class="divider"></div>
+
+            <div class="sectionTitle">Active signals</div>
+            <div class="chips" id="chipsSignals">
+              <span class="chip muted">No signals yet</span>
             </div>
-            <div class="meter">
-              <div class="meter__label">Block</div>
-              <div class="meter__value" id="countBlock">0</div>
+
+            <div class="divider"></div>
+
+            <div class="twoCol">
+              <div>
+                <div class="sectionTitle">Primary reasons</div>
+                <ul class="list" id="listReasons">
+                  <li class="muted">Run a scan to see reasons.</li>
+                </ul>
+              </div>
+              <div>
+                <div class="sectionTitle">Remediation steps</div>
+                <ul class="list" id="listRemediation">
+                  <li class="muted">Run a scan to see suggested steps.</li>
+                </ul>
+              </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="footnote">
+              Local-only counters (no identity, no network, no tracking). Reset with Clear.
             </div>
           </div>
-
-          <div class="divider"></div>
-
-          <div class="section-title">Active Signals</div>
-          <div class="chips" id="activeSignals"></div>
-
-          <div class="divider"></div>
-
-          <div class="section-title">Primary Reasons</div>
-          <ul class="list" id="primaryReasons"></ul>
-
-          <div class="divider"></div>
-
-          <div class="section-title">Remediation Steps</div>
-          <ul class="list" id="remediationSteps"></ul>
         </div>
-      </section>
+      </div>
 
-      <!-- Bottom: Per-line Findings -->
-      <section class="card card--table">
-        <div class="card__header">
-          <div class="card__title">Per-line Findings</div>
-          <div class="muted small">Each input line gets an independent decision.</div>
+      <!-- BOTTOM: Findings table -->
+      <div class="card cardFull">
+        <div class="cardHeader">
+          <div class="cardTitle">Per-line findings</div>
+          <div class="cardSub">Each input line gets an independent decision.</div>
         </div>
 
-        <div class="tableWrap">
-          <table class="table">
+        <div class="cardBody tableWrap">
+          <table class="table" aria-label="Per-line findings table">
             <thead>
               <tr>
-                <th style="width:42%">Segment</th>
-                <th style="width:10%">Type</th>
-                <th style="width:12%">Decision</th>
-                <th style="width:12%">Severity</th>
-                <th style="width:12%">Confidence</th>
-                <th style="width:12%">Entropy</th>
+                <th class="colLine">#</th>
+                <th>Segment</th>
+                <th class="colType">Type</th>
+                <th class="colDecision">Decision</th>
+                <th class="colSeverity">Severity</th>
+                <th class="colConfidence">Confidence</th>
+                <th class="colEntropy">Entropy</th>
               </tr>
             </thead>
-            <tbody id="resultsTableBody">
-              <!-- rows injected -->
+            <tbody id="tblBody">
+              <tr>
+                <td class="muted" colspan="7">No results yet.</td>
+              </tr>
             </tbody>
           </table>
         </div>
-      </section>
+      </div>
 
-    </main>
+      <!-- LEFT: Sidebar info -->
+      <div class="card cardSidebar">
+        <div class="cardHeader">
+          <div class="cardTitle">What it does</div>
+          <div class="cardSub">Privacy-first, local triage.</div>
+        </div>
+        <div class="cardBody">
+          <ul class="bullets">
+            <li>Immediate value: paste → scan → actionable reasons + remediation.</li>
+            <li>Detects URL risks, SQLi/XSS patterns, traversal, obfuscation hints.</li>
+            <li>Exportable JSON report for incident notes / tickets.</li>
+            <li>No accounts. No uploads. Runs entirely in your browser.</li>
+          </ul>
 
-    <footer class="footer">
-      <span class="muted small">Local-only counters (no identity, no network, no tracking). Reset with Clear.</span>
-    </footer>
+          <div class="divider"></div>
 
+          <div class="sectionTitle">Status</div>
+          <div class="statusLine">
+            <span class="dot ok"></span>
+            <span>UI + local engine</span>
+          </div>
+          <div class="statusLine">
+            <span class="dot warn"></span>
+            <span>Rules are heuristic (expandable)</span>
+          </div>
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div>© <span id="year"></span> Validoon</div>
+    <div class="muted">Local demo — no external scripts.</div>
+  </footer>
+
+  <!-- Modal -->
+  <div class="modalBackdrop" id="modalBackdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modalHead">
+        <div class="modalTitle" id="modalTitle">Info</div>
+        <button class="btn small" id="btnCloseModal" type="button">Close</button>
+      </div>
+      <div class="modalBody" id="modalBody"></div>
+    </div>
   </div>
 </body>
 </html>
