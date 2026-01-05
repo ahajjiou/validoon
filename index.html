@@ -6,165 +6,151 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Validoon — Local decision engine</title>
   <meta name="color-scheme" content="dark light" />
-  <style>
-    :root{
-      --bg:#0b1220; --panel:#0f1b33; --panel2:#0c1730; --text:#e6eefc; --muted:#a8b6d2;
-      --ok:#2dd4bf; --warn:#f59e0b; --bad:#ef4444; --line:rgba(255,255,255,.08);
-      --btn:#152a52;
-      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Apple Color Emoji","Segoe UI Emoji";
-    }
-    html,body{height:100%}
-    body{margin:0;background:radial-gradient(1200px 800px at 20% 10%, #10234a 0%, var(--bg) 55%), var(--bg); color:var(--text); font-family:var(--sans);}
-    .wrap{max-width:1200px;margin:0 auto;padding:18px;}
-    .top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;}
-    .brand{display:flex;align-items:center;gap:10px}
-    .logo{width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,#2dd4bf,#60a5fa);display:inline-block}
-    h1{font-size:18px;margin:0}
-    .sub{font-size:12px;color:var(--muted)}
-    .grid{display:grid;grid-template-columns:1.4fr .9fr;gap:14px}
-    @media(max-width:980px){.grid{grid-template-columns:1fr}}
-    .card{background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.02));border:1px solid var(--line);border-radius:16px;overflow:hidden}
-    .card .hd{padding:12px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:10px}
-    .card .bd{padding:12px 14px}
-    .btns{display:flex;gap:8px;flex-wrap:wrap}
-    button{
-      background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.02));
-      border:1px solid var(--line); color:var(--text);
-      padding:8px 10px; border-radius:12px; cursor:pointer; font-weight:600; font-size:12px;
-    }
-    button.primary{background:linear-gradient(180deg,rgba(45,212,191,.35),rgba(45,212,191,.12));border-color:rgba(45,212,191,.35)}
-    button:hover{filter:brightness(1.08)}
-    button:disabled{opacity:.5;cursor:not-allowed}
-    textarea{
-      width:100%; min-height:320px; resize:vertical;
-      background:rgba(0,0,0,.25); color:var(--text);
-      border:1px solid var(--line); border-radius:14px;
-      padding:12px; font-family:var(--mono); font-size:12px; line-height:1.4;
-      outline:none;
-    }
-    .hint{color:var(--muted);font-size:12px;margin-top:8px}
-    .verdict{
-      border-radius:16px;border:1px solid var(--line);
-      padding:14px;
-      background:linear-gradient(135deg,rgba(255,255,255,.05),rgba(255,255,255,.02));
-    }
-    .verdict .label{font-size:11px;color:var(--muted);letter-spacing:.12em;text-transform:uppercase}
-    .verdict .big{font-size:32px;font-weight:900;margin:6px 0 10px 0}
-    .pillrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-    .pill{font-size:11px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:rgba(0,0,0,.18)}
-    .pill.ok{border-color:rgba(45,212,191,.35)}
-    .pill.warn{border-color:rgba(245,158,11,.35)}
-    .pill.bad{border-color:rgba(239,68,68,.35)}
-    .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}
-    .kpi{border:1px solid var(--line);border-radius:14px;padding:10px;background:rgba(0,0,0,.15)}
-    .kpi .t{font-size:11px;color:var(--muted)}
-    .kpi .v{font-size:18px;font-weight:800;margin-top:4px}
-    .signals{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
-    .sig{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-radius:12px;padding:6px 10px;background:rgba(0,0,0,.12)}
-    .table{margin-top:12px;border:1px solid var(--line);border-radius:16px;overflow:hidden}
-    .thead,.trow{display:grid;grid-template-columns:1.1fr .55fr .55fr .45fr .55fr .45fr;gap:0;align-items:center}
-    .thead{background:rgba(255,255,255,.05);font-size:11px;color:var(--muted);padding:10px 12px;border-bottom:1px solid var(--line)}
-    .trow{padding:10px 12px;border-bottom:1px solid var(--line);font-size:12px}
-    .trow:last-child{border-bottom:none}
-    .mono{font-family:var(--mono)}
-    .tag{display:inline-flex;align-items:center;gap:6px}
-    .dot{width:8px;height:8px;border-radius:99px;display:inline-block}
-    .dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.bad{background:var(--bad)}
-    .foot{margin-top:10px;color:var(--muted);font-size:11px}
-    dialog{border:1px solid var(--line);border-radius:16px;background:#0b152c;color:var(--text);max-width:720px}
-    dialog::backdrop{background:rgba(0,0,0,.55)}
-    dialog .dhd{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line)}
-    dialog .dbd{padding:12px 14px}
-    .list{margin:0;padding-left:18px;color:var(--muted);font-size:12px}
-    .em{color:var(--text)}
-  </style>
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="wrap">
-    <div class="top">
+  <div class="app">
+    <!-- Topbar -->
+    <div class="topbar">
       <div class="brand">
-        <span class="logo" aria-hidden="true"></span>
+        <div class="brand-badge" aria-hidden="true">V</div>
         <div>
-          <h1>Validoon</h1>
-          <div class="sub">Local decision engine — ALLOW / WARN / BLOCK • no uploads • no network calls</div>
+          <div class="brand-name">Validoon</div>
+          <div class="brand-sub">Local decision engine — ALLOW / WARN / BLOCK • no uploads • no network calls</div>
         </div>
       </div>
-      <div class="btns">
-        <button id="btnLoadA">Load Test A</button>
-        <button id="btnLoadB">Load Test B</button>
-        <button class="primary" id="btnScan">Execute Scan</button>
-        <button id="btnExport">Export JSON</button>
-        <button id="btnInfo">Info</button>
-        <button id="btnClear">Clear</button>
+
+      <div class="topbar-actions">
+        <button class="btn btn-ghost btn-pill" id="btnLoadA" type="button">Load Test A</button>
+        <button class="btn btn-ghost btn-pill" id="btnLoadB" type="button">Load Test B</button>
+        <button class="btn btn-primary btn-pill" id="btnScan" type="button">Execute Scan</button>
+        <button class="btn btn-ghost btn-pill" id="btnExport" type="button">Export JSON</button>
+        <button class="btn btn-ghost btn-pill" id="btnInfo" type="button">Info</button>
+        <button class="btn btn-danger btn-pill" id="btnClear" type="button">Clear</button>
       </div>
     </div>
 
+    <!-- Main grid -->
     <div class="grid">
-      <div class="card">
-        <div class="hd">
+      <!-- Input card -->
+      <div class="card card-lg">
+        <div class="card-h">
           <div>
-            <div class="label">Input Stream</div>
-            <div class="sub">One item per line (URLs, logs, SQL, base64, suspicious strings).</div>
+            <div class="h-title">Input Stream</div>
+            <div class="h-sub">One item per line (URLs, logs, SQL, base64, suspicious strings).</div>
           </div>
         </div>
-        <div class="bd">
-          <textarea id="input" spellcheck="false" placeholder="Paste here..."></textarea>
-          <div class="hint">Tip: Use Test A/B to validate end-to-end on any device/network.</div>
-          <div class="foot mono" id="buildStamp"></div>
-        </div>
+
+        <textarea id="input" class="textarea" spellcheck="false" placeholder="Paste here..."></textarea>
+
+        <div class="hint">Tip: Use Test A/B to validate end-to-end on any device/network.</div>
+        <div class="footer-note" id="buildStamp"></div>
       </div>
 
-      <div class="card">
-        <div class="hd">
+      <!-- Verdict card -->
+      <div class="card card-lg">
+        <div class="card-h">
           <div>
-            <div class="label">System Verdict</div>
-            <div class="sub">Instant local scoring — no network calls.</div>
+            <div class="h-title">System Verdict</div>
+            <div class="h-sub">Instant local scoring — no network calls.</div>
           </div>
         </div>
-        <div class="bd">
-          <div class="verdict" id="verdictBox">
-            <div class="label">Verdict</div>
-            <div class="big" id="verdictText">SECURE</div>
-            <div class="pillrow">
-              <div class="pill" id="peakSev">Peak severity: 0%</div>
-              <div class="pill" id="peakConf">Confidence: 0%</div>
-            </div>
-            <div class="kpis">
-              <div class="kpi"><div class="t">Scans</div><div class="v" id="kScans">0</div></div>
-              <div class="kpi"><div class="t">Allow</div><div class="v" id="kAllow">0</div></div>
-              <div class="kpi"><div class="t">Warn</div><div class="v" id="kWarn">0</div></div>
-              <div class="kpi"><div class="t">Block</div><div class="v" id="kBlock">0</div></div>
-            </div>
-            <div class="signals" id="signals"></div>
-            <div class="foot" id="reco"></div>
-          </div>
 
-          <div class="table" id="table">
-            <div class="thead">
-              <div>Input</div><div>Type</div><div>Decision</div><div>Sev</div><div>Conf</div><div>Entropy</div>
+        <div id="verdictBox" class="verdict verdict-secure">
+          <div class="verdict-title" id="verdictText">SECURE</div>
+
+          <div class="verdict-meta">
+            <div class="meta-box">
+              <div class="meta-k">Peak severity</div>
+              <div class="meta-v" id="peakSev">0%</div>
             </div>
-            <div id="rows"></div>
+            <div class="meta-box">
+              <div class="meta-k">Confidence</div>
+              <div class="meta-v" id="peakConf">0%</div>
+            </div>
           </div>
         </div>
+
+        <div class="stats">
+          <div class="stat">
+            <div class="stat-k">Scans</div>
+            <div class="stat-v" id="kScans">0</div>
+          </div>
+          <div class="stat">
+            <div class="stat-k">Allow</div>
+            <div class="stat-v ok" id="kAllow">0</div>
+          </div>
+          <div class="stat">
+            <div class="stat-k">Warn</div>
+            <div class="stat-v warn" id="kWarn">0</div>
+          </div>
+          <div class="stat">
+            <div class="stat-k">Block</div>
+            <div class="stat-v bad" id="kBlock">0</div>
+          </div>
+        </div>
+
+        <div class="signals">
+          <div class="signals-title">Active signals</div>
+          <div class="chips" id="signals"></div>
+        </div>
+
+        <div class="footer-note" id="reco"></div>
+      </div>
+
+      <!-- Table -->
+      <div class="card card-xl">
+        <div class="card-h">
+          <div>
+            <div class="h-title">Per-line findings</div>
+            <div class="h-sub">Input • type • decision • severity • confidence • entropy</div>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th style="width:46%;">Input</th>
+                <th>Type</th>
+                <th>Decision</th>
+                <th>Sev</th>
+                <th>Conf</th>
+                <th>Entropy</th>
+              </tr>
+            </thead>
+            <tbody id="rowsBody">
+              <tr class="empty"><td colspan="6">No results yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="footer-note">Local-only. No uploads. No tracking scripts.</div>
       </div>
     </div>
+  </div>
 
-    <dialog id="infoDlg">
-      <div class="dhd">
-        <div class="em">Validoon — Info</div>
-        <button id="btnCloseInfo">Close</button>
+  <!-- Info Modal (CSS-native, not <dialog>) -->
+  <div class="modal-backdrop hidden" id="infoDlg" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="infoTitle">
+      <div class="modal-h">
+        <div class="modal-title" id="infoTitle">Validoon — Info</div>
+        <div class="modal-sub">Privacy-first local scanner. Export JSON for notes/tickets.</div>
       </div>
-      <div class="dbd">
-        <ul class="list">
-          <li><span class="em">Privacy-first:</span> local-only decision engine that triages pasted inputs (URLs, logs, tokens, payloads).</li>
-          <li><span class="em">Immediate value:</span> paste → scan → actionable reasons + steps.</li>
-          <li><span class="em">Signals:</span> phishing-style URLs, SQL/XSS/CMD/LFI patterns, obfuscation.</li>
-          <li><span class="em">Export:</span> JSON report for tickets / notes / SOC handoff.</li>
-          <li><span class="em">No network:</span> no uploads, no API calls, no tracking scripts.</li>
+
+      <div class="modal-b">
+        <ul class="modal-list">
+          <li><b>Privacy-first:</b> runs entirely in your browser (no network calls).</li>
+          <li><b>Inputs:</b> URLs, logs, SQL/XSS/CMD/LFI patterns, obfuscation signals.</li>
+          <li><b>Outcome:</b> ALLOW / WARN / BLOCK with severity + confidence.</li>
+          <li><b>Export:</b> JSON report for SOC handoff or incident notes.</li>
         </ul>
       </div>
-    </dialog>
+
+      <div class="modal-f">
+        <button class="btn btn-ghost" id="btnCloseInfo" type="button">Close</button>
+      </div>
+    </div>
   </div>
 
   <script src="app.js" defer></script>
